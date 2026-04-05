@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm --version)",
+      "Bash(export PATH=\"$PATH:/usr/local/bin:/opt/homebrew/bin\")",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/jackson/.nvm/versions/**)",
+      "Bash(command -v node)",
+      "Read(//usr/local/lib/**)",
+      "Read(//Users/jackson/**)",
+      "Bash(echo $PATH)",
+      "Read(//usr/local/**)",
+      "Read(//opt/homebrew/**)"
+    ]
+  }
+}
