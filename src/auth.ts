@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "@/src/lib/db";
 import { verifyPassword } from "@/src/lib/password";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -26,17 +26,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const valid = await verifyPassword(password, user.passwordHash);
         if (!valid) return null;
 
-        return { id: user.id, name: user.username };
+        return { id: user.id, name: user.name ?? user.username };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
-      if (user) token.name = user.name;
+    async jwt({ token, user, trigger, session }) {
+      if (user) {
+        token.name = user.name;
+      }
+      // Handle session update triggered by unstable_update()
+      if (trigger === "update" && session?.user?.name !== undefined) {
+        token.name = session.user.name;
+      }
       return token;
     },
     async session({ session, token }) {
-      if (session.user) session.user.name = token.name;
+      if (session.user) {
+        session.user.name = token.name;
+        session.user.id = token.sub!;
+      }
       return session;
     },
   },
