@@ -85,6 +85,13 @@ model DataShare {
   @@unique([ownerId, sharedWithId])
 }
 
+// Generic key/value store for application settings
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 // An Event is the "what" — reusable detail record
 model Event {
   id          String        @id @default(cuid())
