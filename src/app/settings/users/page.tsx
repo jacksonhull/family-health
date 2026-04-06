@@ -3,16 +3,18 @@ import { auth } from "@/src/auth";
 import { db } from "@/src/lib/db";
 import { generateToken, hashToken, makeExpiry } from "@/src/lib/token";
 import { sendInviteEmail } from "@/src/lib/email";
-import InviteForm from "./InviteForm";
+import AddMemberForm from "./AddMemberForm";
 import UserTable from "./UserTable";
+import type { MemberRow } from "./UserTable";
 
-const INVITE_ERRORS: Record<string, string> = {
-  already_exists: "A user with that email already exists.",
-  already_invited: "An invitation has already been sent to that address.",
+const ERRORS: Record<string, string> = {
+  already_exists: "A member with that email address already exists.",
   self_action: "You cannot perform this action on your own account.",
+  no_email: "This member does not have an email address. Add one first.",
+  missing_fields: "Display name and date of birth are required.",
 };
 
-export default async function UsersPage({
+export default async function FamilyMembersPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
@@ -22,36 +24,56 @@ export default async function UsersPage({
 
   const { error, success } = await searchParams;
 
-  const [users, invites] = await Promise.all([
-    db.user.findMany({ orderBy: { createdAt: "asc" } }),
-    db.invite.findMany({ orderBy: { createdAt: "desc" } }),
-  ]);
+  const users = await db.user.findMany({
+    include: { invite: true },
+    orderBy: { createdAt: "asc" },
+  });
 
   // ── Server actions ────────────────────────────────────────────────────────
 
-  async function invite(formData: FormData) {
+  async function addMember(formData: FormData) {
     "use server";
     const session = await auth();
     if (session?.user?.role !== "ADMINISTRATOR") redirect("/settings/account");
 
-    const email = (formData.get("email") as string).trim().toLowerCase();
+    const name = (formData.get("name") as string).trim();
+    const dateOfBirth = formData.get("dateOfBirth") as string;
+    const email = (formData.get("email") as string).trim().toLowerCase() || null;
 
-    const existingUser = await db.user.findUnique({ where: { email } });
-    if (existingUser) redirect("/settings/users?error=already_exists");
-
-    const existingInvite = await db.invite.findUnique({ where: { email } });
-    if (existingInvite) {
-      if (existingInvite.expiresAt > new Date()) {
-        redirect("/settings/users?error=already_invited");
-      }
-      // Expired invite — delete it and re-invite
-      await db.invite.delete({ where: { id: existingInvite.id } });
+    if (email) {
+      const existing = await db.user.findUnique({ where: { email } });
+      if (existing) redirect("/settings/users?error=already_exists");
     }
+
+    await db.user.create({
+      data: {
+        name,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        email,
+        role: "USER",
+        status: "ACTIVE",
+      },
+    });
+
+    redirect("/settings/users?success=added");
+  }
+
+  async function sendInvite(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (session?.user?.role !== "ADMINISTRATOR") redirect("/settings/account");
+
+    const userId = formData.get("userId") as string;
+    const user = await db.user.findUnique({ where: { id: userId } });
+    if (!user?.email) redirect("/settings/users?error=no_email");
+
+    // Delete any existing invite (resend scenario)
+    await db.invite.deleteMany({ where: { userId } });
 
     const raw = generateToken();
     await db.invite.create({
       data: {
-        email,
+        userId,
         tokenHash: hashToken(raw),
         invitedById: session.user.id,
         expiresAt: makeExpiry(48),
@@ -59,7 +81,7 @@ export default async function UsersPage({
     });
 
     await sendInviteEmail({
-      to: email,
+      to: user.email,
       token: raw,
       invitedByName: session.user.name,
     });
@@ -91,6 +113,34 @@ export default async function UsersPage({
     redirect("/settings/users");
   }
 
+  async function updateMember(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (session?.user?.role !== "ADMINISTRATOR") redirect("/settings/account");
+
+    const userId = formData.get("userId") as string;
+    const name = (formData.get("name") as string).trim();
+    const dateOfBirth = formData.get("dateOfBirth") as string;
+    const email =
+      (formData.get("email") as string).trim().toLowerCase() || null;
+
+    if (!name || !dateOfBirth) redirect("/settings/users?error=missing_fields");
+
+    if (email) {
+      const existing = await db.user.findFirst({
+        where: { email, NOT: { id: userId } },
+      });
+      if (existing) redirect("/settings/users?error=already_exists");
+    }
+
+    await db.user.update({
+      where: { id: userId },
+      data: { name, dateOfBirth: new Date(dateOfBirth), email },
+    });
+
+    redirect("/settings/users?success=updated");
+  }
+
   async function deleteUser(formData: FormData) {
     "use server";
     const session = await auth();
@@ -103,39 +153,37 @@ export default async function UsersPage({
     redirect("/settings/users");
   }
 
-  async function revokeInvite(formData: FormData) {
-    "use server";
-    const session = await auth();
-    if (session?.user?.role !== "ADMINISTRATOR") redirect("/settings/account");
-
-    const inviteId = formData.get("inviteId") as string;
-    await db.invite.delete({ where: { id: inviteId } });
-    redirect("/settings/users");
-  }
-
-  // Serialize dates for client component
-  const serializedUsers = users.map((u) => ({
-    ...u,
-    createdAt: u.createdAt.toISOString(),
-  }));
-  const serializedInvites = invites.map((i) => ({
-    ...i,
-    expiresAt: i.expiresAt.toISOString(),
-    createdAt: i.createdAt.toISOString(),
+  // Serialize for client component
+  const members: MemberRow[] = users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    dateOfBirth: u.dateOfBirth?.toISOString() ?? null,
+    role: u.role,
+    status: u.status,
+    hasPassword: u.passwordHash !== null,
+    pendingInvite: u.invite
+      ? { id: u.invite.id, expiresAt: u.invite.expiresAt.toISOString() }
+      : null,
   }));
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-gray-800">Users</h2>
+        <h2 className="text-xl font-semibold text-gray-800">Family Members</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Manage user accounts and invitations.
+          Add and manage family members. Invite them to create their own login.
         </p>
       </div>
 
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {INVITE_ERRORS[error] ?? "Something went wrong."}
+          {ERRORS[error] ?? "Something went wrong."}
+        </p>
+      )}
+      {success === "added" && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+          Family member added.
         </p>
       )}
       {success === "invited" && (
@@ -143,20 +191,27 @@ export default async function UsersPage({
           Invitation sent.
         </p>
       )}
+      {success === "updated" && (
+        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+          Member updated.
+        </p>
+      )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-        <p className="text-sm font-medium text-gray-700 mb-3">Invite a user</p>
-        <InviteForm action={invite} />
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <p className="text-sm font-medium text-gray-700 mb-4">
+          Add a family member
+        </p>
+        <AddMemberForm action={addMember} />
       </div>
 
       <UserTable
-        users={serializedUsers}
-        invites={serializedInvites}
+        members={members}
         currentUserId={session.user.id}
+        inviteAction={sendInvite}
+        updateAction={updateMember}
         disableAction={disable}
         enableAction={enable}
         deleteAction={deleteUser}
-        revokeInviteAction={revokeInvite}
       />
     </div>
   );

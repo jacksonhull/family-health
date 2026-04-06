@@ -38,7 +38,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         if (!email || !password) return null;
 
         const user = await db.user.findUnique({ where: { email } });
-        if (!user) return null;
+        if (!user || !user.passwordHash) return null;
 
         const valid = await verifyPassword(password, user.passwordHash);
         if (!valid) return null;
@@ -47,7 +47,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
 
         return {
           id: user.id,
-          email: user.email,
+          email: user.email!,
           name: user.name ?? user.email,
           role: user.role,
         };

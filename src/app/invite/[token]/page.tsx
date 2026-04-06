@@ -17,6 +17,7 @@ export default async function AcceptInvitePage({
 
   const invite = await db.invite.findUnique({
     where: { tokenHash: hashToken(token) },
+    include: { user: true },
   });
 
   const isValid = invite && invite.expiresAt > new Date();
@@ -24,7 +25,6 @@ export default async function AcceptInvitePage({
   async function acceptInvite(formData: FormData) {
     "use server";
     const { token } = await params;
-    const name = (formData.get("name") as string).trim() || null;
     const password = formData.get("password") as string;
     const confirm = formData.get("confirmPassword") as string;
 
@@ -39,24 +39,13 @@ export default async function AcceptInvitePage({
       redirect(`/invite/${token}?error=expired`);
     }
 
-    try {
-      await db.$transaction([
-        db.user.create({
-          data: {
-            email: invite.email,
-            name,
-            role: "USER",
-            status: "ACTIVE",
-            passwordHash: await hashPassword(password),
-          },
-        }),
-        db.invite.delete({ where: { id: invite.id } }),
-      ]);
-    } catch (e: unknown) {
-      // P2002 = unique constraint — user was already created (race condition)
-      const code = (e as { code?: string })?.code;
-      if (code !== "P2002") throw e;
-    }
+    await db.$transaction([
+      db.user.update({
+        where: { id: invite.userId },
+        data: { passwordHash: await hashPassword(password) },
+      }),
+      db.invite.delete({ where: { id: invite.id } }),
+    ]);
 
     redirect("/login?success=account_created");
   }
@@ -100,7 +89,10 @@ export default async function AcceptInvitePage({
                   {ERRORS[error] ?? "Something went wrong."}
                 </p>
               )}
-              <AcceptInviteForm email={invite.email} action={acceptInvite} />
+              <AcceptInviteForm
+                name={invite.user.name ?? invite.user.email ?? ""}
+                action={acceptInvite}
+              />
             </>
           )}
         </div>

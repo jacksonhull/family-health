@@ -57,6 +57,7 @@ export default async function AccountPage({
 
     const user = await db.user.findUnique({ where: { id: session.user.id } });
     if (!user) redirect("/login");
+    if (!user.passwordHash) redirect("/settings/account?error=invalid");
 
     const valid = await verifyPassword(currentPassword, user.passwordHash);
     if (!valid) redirect("/settings/account?error=invalid");

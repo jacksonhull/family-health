@@ -9,7 +9,7 @@ const BASE_ITEMS = [
   { label: "About", href: "/settings/about" },
 ];
 
-const ADMIN_ITEMS = [{ label: "Users", href: "/settings/users" }];
+const ADMIN_ITEMS = [{ label: "Family Members", href: "/settings/users" }];
 
 export default function SettingsNav({ role }: { role: Role | undefined }) {
   const pathname = usePathname();
