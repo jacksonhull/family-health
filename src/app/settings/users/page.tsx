@@ -39,6 +39,7 @@ export default async function FamilyMembersPage({
     const name = (formData.get("name") as string).trim();
     const dateOfBirth = formData.get("dateOfBirth") as string;
     const email = (formData.get("email") as string).trim().toLowerCase() || null;
+    const timezone = (formData.get("timezone") as string) || "UTC";
 
     if (email) {
       const existing = await db.user.findUnique({ where: { email } });
@@ -50,6 +51,7 @@ export default async function FamilyMembersPage({
         name,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
         email,
+        timezone,
         role: "USER",
         status: "ACTIVE",
       },
@@ -123,6 +125,7 @@ export default async function FamilyMembersPage({
     const dateOfBirth = formData.get("dateOfBirth") as string;
     const email =
       (formData.get("email") as string).trim().toLowerCase() || null;
+    const timezone = (formData.get("timezone") as string) || "UTC";
 
     if (!name || !dateOfBirth) redirect("/settings/users?error=missing_fields");
 
@@ -135,7 +138,7 @@ export default async function FamilyMembersPage({
 
     await db.user.update({
       where: { id: userId },
-      data: { name, dateOfBirth: new Date(dateOfBirth), email },
+      data: { name, dateOfBirth: new Date(dateOfBirth), email, timezone },
     });
 
     redirect("/settings/users?success=updated");
@@ -159,6 +162,7 @@ export default async function FamilyMembersPage({
     email: u.email,
     name: u.name,
     dateOfBirth: u.dateOfBirth?.toISOString() ?? null,
+    timezone: u.timezone,
     role: u.role,
     status: u.status,
     hasPassword: u.passwordHash !== null,

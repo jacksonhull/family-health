@@ -1,5 +1,7 @@
 "use client";
 
+import { TIMEZONE_GROUPS } from "@/src/lib/timezones";
+
 export default function AddMemberForm({
   action,
 }: {
@@ -57,6 +59,30 @@ export default function AddMemberForm({
           autoComplete="off"
           className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
         />
+      </div>
+      <div>
+        <label
+          htmlFor="timezone"
+          className="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Timezone
+        </label>
+        <select
+          id="timezone"
+          name="timezone"
+          defaultValue="UTC"
+          className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+        >
+          {TIMEZONE_GROUPS.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.zones.map((z) => (
+                <option key={z.value} value={z.value}>
+                  {z.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </div>
       <div className="pt-1">
         <button

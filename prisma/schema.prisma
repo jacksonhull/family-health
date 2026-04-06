@@ -22,21 +22,35 @@ enum SharePermission {
   WRITE
 }
 
+enum EventCategory {
+  APPOINTMENT      // doctor/specialist visits
+  DIAGNOSIS        // diagnoses and conditions
+  MEDICATION       // prescriptions, changes, stops
+  PROCEDURE        // surgeries, tests, treatments
+  VACCINATION      // immunisations
+  MEASUREMENT      // weight, BP, blood sugar, etc.
+  SYMPTOM          // onset/resolution of symptoms
+  ALLERGY          // allergy identification
+  OTHER
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String?    @unique          // optional — minors may not have one
   name         String?
   dateOfBirth  DateTime?
+  timezone     String     @default("UTC")  // IANA tz, e.g. "America/New_York"
   role         Role       @default(USER)
   status       UserStatus @default(ACTIVE)
   passwordHash String?                     // null until invite is accepted
   createdAt    DateTime   @default(now())
 
-  invite                 Invite?              // this user's own pending invite
+  invite                 Invite?
   sentInvites            Invite[]             @relation("InvitedBy")
   passwordResetTokens    PasswordResetToken[]
   dataSharesAsOwner      DataShare[]          @relation("Owner")
   dataSharesAsSharedWith DataShare[]          @relation("SharedWith")
+  timelineEntries        TimelineEntry[]
 }
 
 model Invite {
@@ -69,4 +83,32 @@ model DataShare {
   createdAt    DateTime        @default(now())
 
   @@unique([ownerId, sharedWithId])
+}
+
+// An Event is the "what" — reusable detail record
+model Event {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  category    EventCategory @default(OTHER)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  timelineEntries TimelineEntry[]
+}
+
+// A TimelineEntry is the "who + when" — links a member to an event
+model TimelineEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   String
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  startTime DateTime              // stored in UTC
+  endTime   DateTime?             // null = point-in-time event
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, startTime])   // efficient per-member chronological queries
+  @@index([startTime])           // efficient cross-member range queries
 }

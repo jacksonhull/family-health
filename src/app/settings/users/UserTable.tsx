@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import type { Role, UserStatus } from "@prisma/client";
+import { TIMEZONE_GROUPS } from "@/src/lib/timezones";
 
 export type MemberRow = {
   id: string;
   email: string | null;
   name: string | null;
   dateOfBirth: string | null;
+  timezone: string;
   role: Role;
   status: UserStatus;
   hasPassword: boolean;
@@ -138,6 +140,27 @@ function EditModal({
               defaultValue={member.email ?? ""}
               className="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Timezone
+            </label>
+            <select
+              name="timezone"
+              defaultValue={member.timezone}
+              className="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              {TIMEZONE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.zones.map((z) => (
+                    <option key={z.value} value={z.value}>
+                      {z.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
@@ -288,7 +311,18 @@ export default function UserTable({
                               </button>
                             </form>
                           )}
-                          <form action={deleteAction}>
+                          <form
+                            action={deleteAction}
+                            onSubmit={(e) => {
+                              if (
+                                !confirm(
+                                  `Delete ${member.name ?? "this member"}? This cannot be undone.`,
+                                )
+                              ) {
+                                e.preventDefault();
+                              }
+                            }}
+                          >
                             <input
                               type="hidden"
                               name="userId"
