@@ -7,10 +7,63 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMINISTRATOR
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum SharePermission {
+  READ
+  WRITE
+}
+
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
+  id           String     @id @default(cuid())
+  email        String     @unique
   name         String?
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
   passwordHash String
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
+
+  sentInvites            Invite[]             @relation("InvitedBy")
+  passwordResetTokens    PasswordResetToken[]
+  dataSharesAsOwner      DataShare[]          @relation("Owner")
+  dataSharesAsSharedWith DataShare[]          @relation("SharedWith")
+}
+
+model Invite {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  tokenHash   String   @unique
+  invitedById String
+  invitedBy   User     @relation("InvitedBy", fields: [invitedById], references: [id])
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model DataShare {
+  id           String          @id @default(cuid())
+  ownerId      String
+  owner        User            @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWithId String
+  sharedWith   User            @relation("SharedWith", fields: [sharedWithId], references: [id], onDelete: Cascade)
+  permission   SharePermission
+  createdAt    DateTime        @default(now())
+
+  @@unique([ownerId, sharedWithId])
 }

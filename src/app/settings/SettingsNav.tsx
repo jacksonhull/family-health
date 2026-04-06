@@ -2,14 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Role } from "@prisma/client";
 
-const items = [
+const BASE_ITEMS = [
   { label: "Account", href: "/settings/account" },
   { label: "About", href: "/settings/about" },
 ];
 
-export default function SettingsNav() {
+const ADMIN_ITEMS = [{ label: "Users", href: "/settings/users" }];
+
+export default function SettingsNav({ role }: { role: Role | undefined }) {
   const pathname = usePathname();
+  const items = [
+    ...BASE_ITEMS,
+    ...(role === "ADMINISTRATOR" ? ADMIN_ITEMS : []),
+  ];
 
   return (
     <nav className="w-40 shrink-0">

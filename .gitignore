@@ -8,6 +8,9 @@ out/
 # production build
 build/
 
+# Claude Code
+.claude/
+
 # environment variables — never commit these
 .env
 .env.local

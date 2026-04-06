@@ -11,13 +11,14 @@ export default async function SettingsLayout({
   const session = await auth();
   if (!session) redirect("/login");
 
-  const username = session.user?.name ?? "admin";
+  const username = session.user?.name ?? session.user?.email ?? "admin";
+  const role = session.user?.role;
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header username={username} />
       <div className="flex flex-1 w-full max-w-3xl mx-auto px-4 py-10 gap-8">
-        <SettingsNav />
+        <SettingsNav role={role} />
         <main className="flex-1">{children}</main>
       </div>
     </div>

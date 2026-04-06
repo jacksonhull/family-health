@@ -2,7 +2,7 @@
 set -e
 
 echo "Pushing database schema..."
-npx prisma db push --accept-data-loss
+npx prisma db push --force-reset
 
 echo "Seeding admin user..."
 npx prisma db seed
