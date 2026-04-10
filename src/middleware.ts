@@ -15,5 +15,5 @@ export default auth((req) => {
 
 export const config = {
   runtime: "nodejs",
-  matcher: ["/dashboard/:path*", "/settings/:path*"],
+  matcher: ["/dashboard/:path*", "/settings/:path*", "/event/:path*"],
 };

@@ -46,7 +46,7 @@ export default async function FamilyMembersPage({
       if (existing) redirect("/settings/users?error=already_exists");
     }
 
-    await db.user.create({
+    const newUser = await db.user.create({
       data: {
         name,
         dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
@@ -54,6 +54,14 @@ export default async function FamilyMembersPage({
         timezone,
         role: "USER",
         status: "ACTIVE",
+      },
+    });
+
+    await db.medicalHistory.create({
+      data: {
+        userId: newUser.id,
+        summary:
+          "The patient has no known history of illness or other medical conditions.",
       },
     });
 

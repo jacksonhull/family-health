@@ -40,7 +40,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
       NODE_ENV: production
+    volumes:
+      - uploads:/app/uploads
 
 volumes:
   postgres_data:
+  uploads:

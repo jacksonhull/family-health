@@ -51,6 +51,7 @@ model User {
   dataSharesAsOwner      DataShare[]          @relation("Owner")
   dataSharesAsSharedWith DataShare[]          @relation("SharedWith")
   timelineEntries        TimelineEntry[]
+  medicalHistories       MedicalHistory[]
 }
 
 model Invite {
@@ -96,12 +97,47 @@ model AppSetting {
 model Event {
   id          String        @id @default(cuid())
   title       String
-  description String?
+  summary     String?       // concise overview; manually entered or AI-generated
+  description String?       // detailed notes
   category    EventCategory @default(OTHER)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   timelineEntries TimelineEntry[]
+  details         EventDetail[]
+}
+
+// Attached detail for an event — text, file, image, transcript, etc.
+// The AI determines the document type rather than using a fixed enum.
+model EventDetail {
+  id           String   @id @default(cuid())
+  eventId      String
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  sourceType   String   // "text" | "file"
+  originalText String?  // pasted text, or text extracted from an uploaded file
+  fileName     String?  // original filename for uploaded files
+  filePath     String?  // path relative to UPLOAD_DIR for binary files
+  mimeType     String?  // MIME type of uploaded file
+
+  // AI-populated fields
+  documentType String?  // flexible label inferred by the LLM
+  processed    Boolean  @default(false)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Versioned medical history summaries for a family member.
+// The most-recent record is injected into AI prompts as patient context.
+model MedicalHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  summary   String   // free-text narrative; manually written or AI-updated
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // A TimelineEntry is the "who + when" — links a member to an event

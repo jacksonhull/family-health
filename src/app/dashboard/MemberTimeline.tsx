@@ -10,6 +10,7 @@ export type TimelineEntryRow = {
   event: {
     id: string;
     title: string;
+    summary: string | null;
     description: string | null;
     category: EventCategory;
   };
@@ -26,51 +27,15 @@ const CATEGORY: Record<
   EventCategory,
   { dot: string; badge: string; label: string }
 > = {
-  APPOINTMENT: {
-    dot: "bg-blue-500",
-    badge: "bg-blue-100 text-blue-700",
-    label: "Appointment",
-  },
-  DIAGNOSIS: {
-    dot: "bg-red-500",
-    badge: "bg-red-100 text-red-700",
-    label: "Diagnosis",
-  },
-  MEDICATION: {
-    dot: "bg-purple-500",
-    badge: "bg-purple-100 text-purple-700",
-    label: "Medication",
-  },
-  PROCEDURE: {
-    dot: "bg-orange-500",
-    badge: "bg-orange-100 text-orange-700",
-    label: "Procedure",
-  },
-  VACCINATION: {
-    dot: "bg-green-500",
-    badge: "bg-green-100 text-green-700",
-    label: "Vaccination",
-  },
-  MEASUREMENT: {
-    dot: "bg-cyan-500",
-    badge: "bg-cyan-100 text-cyan-700",
-    label: "Measurement",
-  },
-  SYMPTOM: {
-    dot: "bg-yellow-500",
-    badge: "bg-yellow-100 text-yellow-700",
-    label: "Symptom",
-  },
-  ALLERGY: {
-    dot: "bg-pink-500",
-    badge: "bg-pink-100 text-pink-700",
-    label: "Allergy",
-  },
-  OTHER: {
-    dot: "bg-gray-400",
-    badge: "bg-gray-100 text-gray-600",
-    label: "Other",
-  },
+  APPOINTMENT: { dot: "bg-blue-500",   badge: "bg-blue-100 text-blue-700",   label: "Appointment" },
+  DIAGNOSIS:   { dot: "bg-red-500",    badge: "bg-red-100 text-red-700",     label: "Diagnosis" },
+  MEDICATION:  { dot: "bg-purple-500", badge: "bg-purple-100 text-purple-700", label: "Medication" },
+  PROCEDURE:   { dot: "bg-orange-500", badge: "bg-orange-100 text-orange-700", label: "Procedure" },
+  VACCINATION: { dot: "bg-green-500",  badge: "bg-green-100 text-green-700",  label: "Vaccination" },
+  MEASUREMENT: { dot: "bg-cyan-500",   badge: "bg-cyan-100 text-cyan-700",   label: "Measurement" },
+  SYMPTOM:     { dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700", label: "Symptom" },
+  ALLERGY:     { dot: "bg-pink-500",   badge: "bg-pink-100 text-pink-700",   label: "Allergy" },
+  OTHER:       { dot: "bg-gray-400",   badge: "bg-gray-100 text-gray-600",   label: "Other" },
 };
 
 function formatInTz(iso: string, timezone: string) {
@@ -118,22 +83,46 @@ export default function MemberTimeline({
           <ul className="space-y-6">
             {member.entries.map((entry) => {
               const cat = CATEGORY[entry.event.category];
-              const isBeingEdited = entry.id === editingEntryId;
+              const isOpen     = entry.id === editingEntryId;
+              const hasSummary = Boolean(entry.event.summary);
+
+              // Pulsing = form open but no summary yet (awaiting processing)
+              // Selected = form open and summary exists
+              const isPulsing  = isOpen && !hasSummary;
+              const isSelected = isOpen && hasSummary;
+
+              // Dot top offset:
+              //   text-sm line-height ≈ 20px → text centre at 10px
+              //   dot is 12px tall → needs top = 10 - 6 = 4px (normal)
+              //   when open, li gets py-2 (8px top pad) → top = 8 + 10 - 6 = 12px
+              const dotTop  = isOpen ? "12px" : "4px";
+              const dotLeft = isOpen ? "8px"  : "0px";
 
               return (
                 <li
                   key={entry.id}
                   className={`relative pl-7 rounded-lg transition-colors ${
-                    isBeingEdited ? "bg-blue-50 -mx-2 px-9 py-2" : ""
+                    isOpen ? "bg-blue-50 -mx-2 px-9 py-2" : ""
                   }`}
                 >
-                  {/* Dot */}
+                  {/* Dot — vertically centred to the event title line */}
                   <div
-                    className={`absolute left-0 top-1.5 w-3 h-3 rounded-full ring-2 ${
-                      isBeingEdited ? "ring-blue-200" : "ring-white"
-                    } ${cat.dot}`}
-                    style={isBeingEdited ? { left: "8px" } : undefined}
-                  />
+                    className="absolute"
+                    style={{ top: dotTop, left: dotLeft, width: 12, height: 12 }}
+                  >
+                    {/* Ping ring: visible only while awaiting summary */}
+                    {isPulsing && (
+                      <span
+                        className={`absolute inset-0 rounded-full opacity-60 ${cat.dot} animate-ping`}
+                      />
+                    )}
+                    {/* Solid dot */}
+                    <span
+                      className={`absolute inset-0 rounded-full ring-2 ${
+                        isOpen ? "ring-blue-200" : "ring-white"
+                      } ${cat.dot}`}
+                    />
+                  </div>
 
                   {/* Content */}
                   <div>
@@ -146,9 +135,9 @@ export default function MemberTimeline({
                       >
                         {cat.label}
                       </span>
-                      {isBeingEdited && (
-                        <span className="text-xs text-blue-600 font-medium">
-                          editing…
+                      {isSelected && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium text-gray-500 bg-gray-100">
+                          selected
                         </span>
                       )}
                     </div>
@@ -157,26 +146,33 @@ export default function MemberTimeline({
                       {formatInTz(entry.startTime, member.timezone)}
                       {entry.endTime && (
                         <>
-                          {" "}
-                          &rarr;{" "}
+                          {" "}&rarr;{" "}
                           {formatInTz(entry.endTime, member.timezone)}
                         </>
                       )}
                     </p>
 
+                    {entry.event.summary && (
+                      <p className="mt-1 text-sm text-gray-700">
+                        {entry.event.summary}
+                      </p>
+                    )}
+
                     {entry.event.description && (
-                      <p className="mt-1 text-sm text-gray-500">
+                      <p className="mt-1 text-sm text-gray-400">
                         {entry.event.description}
                       </p>
                     )}
 
-                    {!isBeingEdited && (
-                      <Link
-                        href={`/dashboard?memberId=${member.id}&edit=${entry.id}`}
-                        className="mt-1 inline-block text-xs text-gray-400 hover:text-blue-600 transition-colors"
-                      >
-                        Edit
-                      </Link>
+                    {!isOpen && (
+                      <div className="mt-1">
+                        <Link
+                          href={`/dashboard?memberId=${member.id}&edit=${entry.id}`}
+                          className="text-xs text-gray-400 hover:text-blue-600 transition-colors"
+                        >
+                          Edit / Details
+                        </Link>
+                      </div>
                     )}
                   </div>
                 </li>

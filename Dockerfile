@@ -46,9 +46,15 @@ COPY --from=builder /app/node_modules ./node_modules
 # Prisma schema and seed script
 COPY --from=builder /app/prisma ./prisma
 
+# AI prompt templates
+COPY --from=builder /app/prompts ./prompts
+
 # Entrypoint
 COPY scripts/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
+
+# Create uploads directory (overridden by a volume mount in production)
+RUN mkdir -p /app/uploads
 
 EXPOSE 3000
 

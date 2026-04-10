@@ -1,13 +1,16 @@
 import { redirect } from "next/navigation";
+import fs from "fs/promises";
+import path from "path";
 import { auth } from "@/src/auth";
 import { db } from "@/src/lib/db";
 import { localToUtc, utcToLocalInput } from "@/src/lib/timezone";
+import { processEventDetail, isTextBasedFile } from "@/src/lib/ai/process";
 import Header from "@/src/components/Header";
 import MemberSelector from "./MemberSelector";
 import AddEventForm from "./AddEventForm";
 import MemberTimeline from "./MemberTimeline";
 import type { MemberTimelineData } from "./MemberTimeline";
-import type { EditingEntry } from "./AddEventForm";
+import type { EditingEntry, EventDetailRow } from "./AddEventForm";
 import type { EventCategory } from "@prisma/client";
 
 export default async function DashboardPage({
@@ -29,7 +32,7 @@ export default async function DashboardPage({
   // Default to the logged-in user's own profile
   const selectedMemberId = memberId ?? session.user.id;
 
-  // Non-admins can only view their own profile (shared members: future work)
+  // Non-admins can only view their own profile
   if (!isAdmin && selectedMemberId !== session.user.id) {
     redirect(`/dashboard?memberId=${session.user.id}`);
   }
@@ -57,7 +60,6 @@ export default async function DashboardPage({
     },
   });
 
-  // Guard: if the requested member doesn't exist, fall back to self
   if (!selectedMember) redirect(`/dashboard?memberId=${session.user.id}`);
 
   // ── Resolve editing entry ─────────────────────────────────────────────────
@@ -69,6 +71,7 @@ export default async function DashboardPage({
         entryId: found.id,
         eventId: found.event.id,
         title: found.event.title,
+        summary: found.event.summary,
         description: found.event.description,
         category: found.event.category,
         startTimeInput: utcToLocalInput(
@@ -76,13 +79,37 @@ export default async function DashboardPage({
           selectedMember.timezone,
         ),
         endTimeInput: found.endTime
-          ? utcToLocalInput(
-              found.endTime.toISOString(),
-              selectedMember.timezone,
-            )
+          ? utcToLocalInput(found.endTime.toISOString(), selectedMember.timezone)
           : null,
       };
     }
+  }
+
+  // ── Most recent medical history for the selected member ──────────────────
+  const latestHistory = await db.medicalHistory.findFirst({
+    where: { userId: selectedMemberId },
+    orderBy: { createdAt: "desc" },
+    select: { summary: true, createdAt: true },
+  });
+
+  // ── Fetch details for the editing event ──────────────────────────────────
+  let editingDetails: EventDetailRow[] = [];
+  if (editingEntry) {
+    const rawDetails = await db.eventDetail.findMany({
+      where: { eventId: editingEntry.eventId },
+      orderBy: { createdAt: "desc" },
+    });
+    editingDetails = rawDetails.map((d) => ({
+      id: d.id,
+      sourceType: d.sourceType,
+      originalText: d.originalText,
+      fileName: d.fileName,
+      filePath: d.filePath,
+      mimeType: d.mimeType,
+      documentType: d.documentType,
+      processed: d.processed,
+      createdAt: d.createdAt.toISOString(),
+    }));
   }
 
   // ── Server actions ────────────────────────────────────────────────────────
@@ -96,10 +123,9 @@ export default async function DashboardPage({
     const title = (formData.get("title") as string).trim();
     const category = (formData.get("category") as string) as EventCategory;
     const startRaw = formData.get("startTime") as string;
-    const endRaw =
-      ((formData.get("endTime") as string) ?? "").trim() || null;
-    const description =
-      ((formData.get("description") as string) ?? "").trim() || null;
+    const endRaw = ((formData.get("endTime") as string) ?? "").trim() || null;
+    const summary = ((formData.get("summary") as string) ?? "").trim() || null;
+    const description = ((formData.get("description") as string) ?? "").trim() || null;
 
     if (!userId || !title || !startRaw)
       redirect(`/dashboard?memberId=${userId}&error=missing`);
@@ -112,7 +138,7 @@ export default async function DashboardPage({
 
     await db.$transaction(async (tx) => {
       const event = await tx.event.create({
-        data: { title, description, category },
+        data: { title, summary, description, category },
       });
       await tx.timelineEntry.create({
         data: {
@@ -138,10 +164,9 @@ export default async function DashboardPage({
     const title = (formData.get("title") as string).trim();
     const category = (formData.get("category") as string) as EventCategory;
     const startRaw = formData.get("startTime") as string;
-    const endRaw =
-      ((formData.get("endTime") as string) ?? "").trim() || null;
-    const description =
-      ((formData.get("description") as string) ?? "").trim() || null;
+    const endRaw = ((formData.get("endTime") as string) ?? "").trim() || null;
+    const summary = ((formData.get("summary") as string) ?? "").trim() || null;
+    const description = ((formData.get("description") as string) ?? "").trim() || null;
 
     if (!entryId || !eventId || !title || !startRaw)
       redirect(`/dashboard?memberId=${userId}&error=missing`);
@@ -155,7 +180,7 @@ export default async function DashboardPage({
     await db.$transaction([
       db.event.update({
         where: { id: eventId },
-        data: { title, description, category },
+        data: { title, summary, description, category },
       }),
       db.timelineEntry.update({
         where: { id: entryId },
@@ -167,6 +192,96 @@ export default async function DashboardPage({
     ]);
 
     redirect(`/dashboard?memberId=${userId}&success=updated`);
+  }
+
+  async function addTextDetail(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session) redirect("/login");
+
+    const userId = formData.get("userId") as string;
+    const entryId = formData.get("entryId") as string;
+    const eventId = formData.get("eventId") as string;
+    const text = ((formData.get("text") as string) ?? "").trim();
+
+    if (!text)
+      redirect(`/dashboard?memberId=${userId}&edit=${entryId}&error=empty`);
+
+    const detail = await db.eventDetail.create({
+      data: { eventId, sourceType: "text", originalText: text },
+    });
+
+    await processEventDetail(detail.id, eventId, text, null, null);
+    redirect(`/dashboard?memberId=${userId}&edit=${entryId}&success=detail`);
+  }
+
+  async function addFileDetail(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session) redirect("/login");
+
+    const userId = formData.get("userId") as string;
+    const entryId = formData.get("entryId") as string;
+    const eventId = formData.get("eventId") as string;
+    const file = formData.get("file") as File | null;
+
+    if (!file || file.size === 0)
+      redirect(`/dashboard?memberId=${userId}&edit=${entryId}&error=nofile`);
+
+    const uploadDir = process.env.UPLOAD_DIR ?? "/app/uploads";
+    const eventDir = path.join(uploadDir, eventId);
+    await fs.mkdir(eventDir, { recursive: true });
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const uniqueName = `${Date.now()}-${safeName}`;
+    const absPath = path.join(eventDir, uniqueName);
+    const relPath = `${eventId}/${uniqueName}`;
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await fs.writeFile(absPath, buffer);
+
+    const originalText = isTextBasedFile(file.name, file.type)
+      ? new TextDecoder().decode(buffer)
+      : null;
+
+    const detail = await db.eventDetail.create({
+      data: {
+        eventId,
+        sourceType: "file",
+        originalText,
+        fileName: file.name,
+        filePath: relPath,
+        mimeType: file.type || null,
+      },
+    });
+
+    await processEventDetail(
+      detail.id,
+      eventId,
+      originalText,
+      file.name,
+      file.type || null,
+    );
+    redirect(`/dashboard?memberId=${userId}&edit=${entryId}&success=detail`);
+  }
+
+  async function deleteDetail(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session) redirect("/login");
+
+    const userId = formData.get("userId") as string;
+    const entryId = formData.get("entryId") as string;
+    const detailId = formData.get("detailId") as string;
+    const filePath = (formData.get("filePath") as string | null) || null;
+
+    if (filePath) {
+      const uploadDir = process.env.UPLOAD_DIR ?? "/app/uploads";
+      await fs.unlink(path.join(uploadDir, filePath)).catch(() => {});
+    }
+
+    await db.eventDetail.delete({ where: { id: detailId } });
+    redirect(`/dashboard?memberId=${userId}&edit=${entryId}`);
   }
 
   // ── Serialize for client ──────────────────────────────────────────────────
@@ -182,6 +297,7 @@ export default async function DashboardPage({
       event: {
         id: e.event.id,
         title: e.event.title,
+        summary: e.event.summary,
         description: e.event.description,
         category: e.event.category,
       },
@@ -213,27 +329,58 @@ export default async function DashboardPage({
               Event updated.
             </p>
           )}
+          {success === "detail" && (
+            <p className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              Detail added and processed.
+            </p>
+          )}
 
           <div className="flex gap-6 items-start">
-            {/* ── Timeline ── */}
-            <div className="flex-1 min-w-0">
+            {/* ── Timeline + Medical history ── */}
+            <div className="flex-1 min-w-0 space-y-5">
               <MemberTimeline member={timeline} editingEntryId={edit} />
+
+              {/* Medical history card */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    Medical history
+                  </h3>
+                  {latestHistory && (
+                    <span className="text-xs text-gray-400">
+                      Updated{" "}
+                      {new Date(latestHistory.createdAt).toLocaleDateString(
+                        "en-US",
+                        { month: "short", day: "numeric", year: "numeric" },
+                      )}
+                    </span>
+                  )}
+                </div>
+                {latestHistory ? (
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {latestHistory.summary}
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">
+                    No medical history recorded yet.
+                  </p>
+                )}
+              </div>
             </div>
 
-            {/* ── Add / Edit event form ── */}
-            <div className="w-72 shrink-0">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sticky top-6">
-                <p className="text-sm font-medium text-gray-700 mb-4">
-                  {editingEntry ? "Edit event" : "Add event"}
-                </p>
-                <AddEventForm
-                  selectedMemberId={selectedMemberId}
-                  addAction={addEvent}
-                  updateAction={updateEvent}
-                  editing={editingEntry}
-                  cancelHref={cancelHref}
-                />
-              </div>
+            {/* ── Add / Edit event form (with inline details) ── */}
+            <div className="w-80 shrink-0 sticky top-6 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl">
+              <AddEventForm
+                selectedMemberId={selectedMemberId}
+                addAction={addEvent}
+                updateAction={updateEvent}
+                editing={editingEntry}
+                cancelHref={cancelHref}
+                editingDetails={editingDetails}
+                addTextDetailAction={editingEntry ? addTextDetail : undefined}
+                addFileDetailAction={editingEntry ? addFileDetail : undefined}
+                deleteDetailAction={editingEntry ? deleteDetail : undefined}
+              />
             </div>
           </div>
         </div>

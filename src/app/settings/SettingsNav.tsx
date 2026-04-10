@@ -4,9 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Role } from "@prisma/client";
 
-const BASE_ITEMS = [
+const ACCOUNT_ITEMS = [
   { label: "Account", href: "/settings/account" },
-  { label: "About", href: "/settings/about" },
 ];
 
 const ADMIN_ITEMS = [
@@ -14,11 +13,14 @@ const ADMIN_ITEMS = [
   { label: "AI Models", href: "/settings/ai" },
 ];
 
+const ABOUT_ITEM = { label: "About", href: "/settings/about" };
+
 export default function SettingsNav({ role }: { role: Role | undefined }) {
   const pathname = usePathname();
   const items = [
-    ...BASE_ITEMS,
+    ...ACCOUNT_ITEMS,
     ...(role === "ADMINISTRATOR" ? ADMIN_ITEMS : []),
+    ABOUT_ITEM,
   ];
 
   return (
