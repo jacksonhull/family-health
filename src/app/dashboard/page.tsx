@@ -55,7 +55,7 @@ export default async function DashboardPage({
       timezone: true,
       timelineEntries: {
         include: { event: true },
-        orderBy: { startTime: "asc" },
+        orderBy: { startTime: "desc" },
       },
     },
   });
@@ -369,7 +369,7 @@ export default async function DashboardPage({
             </div>
 
             {/* ── Add / Edit event form (with inline details) ── */}
-            <div className="w-80 shrink-0 sticky top-6 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-xl">
+            <div className="w-80 shrink-0 sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-xl">
               <AddEventForm
                 selectedMemberId={selectedMemberId}
                 addAction={addEvent}

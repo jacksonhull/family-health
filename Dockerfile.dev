@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+# ── Dev image ────────────────────────────────────────────────────────────────
+# Source code is volume-mounted at runtime — no COPY of src/.
+# Only rebuild this image when package.json / package-lock.json changes.
+
+FROM node:20-alpine
+WORKDIR /app
+
+RUN apk add --no-cache openssl
+
+# Install all deps (including devDependencies needed for next dev / tsx)
+COPY package.json package-lock.json* ./
+COPY prisma/schema.prisma ./prisma/schema.prisma
+
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+EXPOSE 3000
+
+# The entrypoint lives in scripts/ which is part of the volume-mounted project,
+# so it's always available at /app/scripts/docker-entrypoint.dev.sh at runtime.
+ENTRYPOINT ["sh", "/app/scripts/docker-entrypoint.dev.sh"]

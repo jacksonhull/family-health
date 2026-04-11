@@ -1,0 +1,28 @@
+# Development overrides — merge on top of docker-compose.yml.
+#
+# Start:   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Rebuild: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --force-recreate
+# Logs:    docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f app
+#
+# You only need --build when package.json or package-lock.json changes.
+# All src/, prompts/, prisma/, public/ changes are picked up instantly via HMR.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      NODE_ENV: development
+      # Polling ensures HMR works inside Docker on macOS and Windows (no inotify).
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - .:/app                 # entire project root → live edits reflected immediately
+      - /app/node_modules      # anonymous vol: use container's node_modules, not host's
+      - /app/.next             # anonymous vol: keep Next.js cache inside container
+      - uploads:/app/uploads   # named vol: persists uploads (overrides . mount above)
+
+# Declare the named volume so Docker Compose knows it exists in this file too.
+volumes:
+  uploads:

@@ -13,8 +13,82 @@ export type TestResult = {
 const TEST_PROMPT =
   'Reply with exactly the word "OK" and nothing else. No punctuation, no explanation.';
 
+// ── Vision probing helpers ─────────────────────────────────────────────────
+// Tiny 1×1 white PNG — minimal cost when probing models for image support.
+const VISION_PROBE_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+/**
+ * Probes a single OpenAI model by sending a 1×1 PNG.
+ * Returns true if the model accepted the image (HTTP 200).
+ */
+async function probeOpenAIVision(apiKey: string, model: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 5,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: `data:image/png;base64,${VISION_PROBE_PNG}` },
+              },
+              { type: "text", text: 'Reply "OK"' },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    console.log(`[AI] OpenAI vision probe ${model}: ${res.status}`);
+    return res.ok;
+  } catch {
+    console.log(`[AI] OpenAI vision probe ${model}: timeout/error`);
+    return false;
+  }
+}
+
+/**
+ * Calls Ollama's /api/show endpoint for a single model and returns true if
+ * "vision" appears in the capabilities array (requires Ollama ≥ v0.6.4).
+ */
+async function fetchOllamaVision(ollamaUrl: string, model: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${ollamaUrl}/api/show`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: model }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const caps: string[] = Array.isArray(data.capabilities) ? data.capabilities : [];
+    console.log(`[AI] Ollama capabilities for ${model}:`, caps);
+    return caps.includes("vision");
+  } catch {
+    console.log(`[AI] Ollama /api/show failed for ${model}`);
+    return false;
+  }
+}
+
 // ── Anthropic ──────────────────────────────────────────────────────────────
-// Uses GET /v1/models to both verify the key and list available models.
+// The models list returns capabilities.image_input.supported per model.
+
+type AnthropicModel = {
+  id: string;
+  display_name?: string;
+  capabilities?: {
+    image_input?: { supported?: boolean };
+  };
+};
 
 export async function testAnthropic(): Promise<TestResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
@@ -41,16 +115,28 @@ export async function testAnthropic(): Promise<TestResult> {
     }
 
     const data = await res.json();
-    console.log("[AI] Anthropic models:", JSON.stringify(data));
-    const models: ModelOption[] = (data.data ?? []).map(
-      (m: { id: string; display_name: string }) => ({
-        value: m.id,
-        label: m.display_name ?? m.id,
-      }),
+    const allModels: AnthropicModel[] = data.data ?? [];
+    console.log(`[AI] Anthropic: ${allModels.length} total models`);
+
+    const models: ModelOption[] = allModels
+      .filter((m) => {
+        // Use the capabilities flag when present; fall back to name pattern
+        // (all claude-3 and newer families support image input).
+        if (m.capabilities?.image_input !== undefined) {
+          return m.capabilities.image_input.supported === true;
+        }
+        return /^claude-(3|opus|sonnet|haiku)/.test(m.id);
+      })
+      .map((m) => ({ value: m.id, label: m.display_name ?? m.id }));
+
+    console.log(
+      `[AI] Anthropic: ${models.length} image-capable models:`,
+      models.map((m) => m.value),
     );
+
     return {
       ok: true,
-      message: `${models.length} model(s) available`,
+      message: `${models.length} of ${allModels.length} models support images`,
       latencyMs,
       models,
     };
@@ -66,7 +152,9 @@ export async function testAnthropic(): Promise<TestResult> {
 }
 
 // ── OpenAI ─────────────────────────────────────────────────────────────────
-// Uses GET /v1/models, filters to chat-capable models only.
+// The models list has no capability metadata — probe each model with a tiny
+// PNG image. All probes run in parallel so latency is bounded by the slowest
+// responding model (typically < 5 s).
 
 const OPENAI_CHAT_PREFIXES = ["gpt-", "o1", "o3", "chatgpt-"];
 
@@ -92,22 +180,33 @@ export async function testOpenAI(): Promise<TestResult> {
     }
 
     const data = await res.json();
-    const models: ModelOption[] = (data.data ?? [])
+    const chatModels: string[] = (data.data ?? [])
       .map((m: { id: string }) => m.id)
       .filter((id: string) =>
         OPENAI_CHAT_PREFIXES.some((prefix) => id.startsWith(prefix)),
       )
-      .sort((a: string, b: string) => b.localeCompare(a)) // newest first
-      .map((id: string) => ({ value: id, label: id }));
+      .sort((a: string, b: string) => b.localeCompare(a));
+
+    console.log(`[AI] OpenAI: ${chatModels.length} chat models, probing for vision support…`);
+
+    // Probe all chat models in parallel
+    const visionFlags = await Promise.all(
+      chatModels.map((id) => probeOpenAIVision(apiKey, id)),
+    );
+
+    const models: ModelOption[] = chatModels
+      .filter((_, i) => visionFlags[i])
+      .map((id) => ({ value: id, label: id }));
 
     console.log(
-      "[AI] OpenAI chat models:",
+      `[AI] OpenAI: ${models.length} image-capable models:`,
       models.map((m) => m.value),
     );
+
     return {
       ok: true,
-      message: `${models.length} model(s) available`,
-      latencyMs,
+      message: `${models.length} of ${chatModels.length} models support images`,
+      latencyMs: Date.now() - start,
       models,
     };
   } catch (e) {
@@ -122,6 +221,8 @@ export async function testOpenAI(): Promise<TestResult> {
 }
 
 // ── Ollama ─────────────────────────────────────────────────────────────────
+// /api/tags lists installed models; /api/show returns capabilities per model
+// (requires Ollama ≥ v0.6.4). All show-calls run in parallel.
 
 export async function testOllama(): Promise<TestResult> {
   const ollamaUrl = process.env.OLLAMA_URL?.trim();
@@ -145,15 +246,28 @@ export async function testOllama(): Promise<TestResult> {
     }
 
     const data = await res.json();
-    console.log("[AI] Ollama models:", JSON.stringify(data));
-    const models: ModelOption[] = (data.models ?? [])
+    const allModels: ModelOption[] = (data.models ?? [])
       .map((m: { name: string }) => ({ value: m.name, label: m.name }))
       .sort((a: ModelOption, b: ModelOption) => a.label.localeCompare(b.label));
 
+    console.log(`[AI] Ollama: ${allModels.length} installed models, checking vision capabilities…`);
+
+    // Fetch capabilities for all models in parallel via /api/show
+    const visionFlags = await Promise.all(
+      allModels.map((m) => fetchOllamaVision(ollamaUrl, m.value)),
+    );
+
+    const models = allModels.filter((_, i) => visionFlags[i]);
+
+    console.log(
+      `[AI] Ollama: ${models.length} image-capable models:`,
+      models.map((m) => m.value),
+    );
+
     return {
       ok: true,
-      message: `${models.length} model(s) available`,
-      latencyMs,
+      message: `${models.length} of ${allModels.length} models support images`,
+      latencyMs: Date.now() - start,
       models,
     };
   } catch (e) {

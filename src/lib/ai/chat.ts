@@ -78,9 +78,8 @@ export async function generateText(
 
   console.log(`[AI] ── generateText ──────────────────────────────────────`);
   console.log(`[AI] provider=${provider}  model=${model}`);
-  if (file) console.log(`[AI] FILE ATTACHMENT: ${file.fileName} (${file.mimeType}, ${file.buffer.length} bytes)`);
-  console.log(`[AI] SYSTEM PROMPT:\n${sp}`);
-  console.log(`[AI] USER PROMPT:\n${userPrompt}`);
+  if (file) console.log(`[AI] file: ${file.fileName} (${file.mimeType}, ${file.buffer.length} bytes)`);
+  console.log(`[AI] system prompt (${sp.length} chars), user prompt (${userPrompt.length} chars)`);
   console.log(`[AI] ─────────────────────────────────────────────────────`);
 
   if (provider === "anthropic") return callAnthropic(model, sp, userPrompt, file);
@@ -228,8 +227,21 @@ async function callOpenAI(
 }
 
 // ── Ollama ────────────────────────────────────────────────────────────────
-// Supports: images for vision-capable models (llava, etc.) via `images` field.
-// PDFs not supported.
+// Supports: images for vision-capable models via `images` field in the chat API.
+// Known vision model name fragments: llava, bakllava, moondream, minicpm-v,
+// gemma3, gemma4, qwen2-vl, phi3-vision, mistral-small3.1, cogvlm, internvl.
+// PDFs are not supported — falls back to text-only.
+
+const OLLAMA_VISION_FRAGMENTS = [
+  "llava", "bakllava", "moondream", "minicpm-v",
+  "gemma3", "gemma4", "qwen2-vl", "phi3-vision",
+  "mistral-small3.1", "cogvlm", "internvl",
+];
+
+function ollamaSupportsVision(model: string): boolean {
+  const lower = model.toLowerCase();
+  return OLLAMA_VISION_FRAGMENTS.some((f) => lower.includes(f));
+}
 
 async function callOllama(
   model: string,
@@ -244,30 +256,41 @@ async function callOllama(
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
 
   if (file && file.mimeType.startsWith("image/")) {
-    const base64 = file.buffer.toString("base64");
-    console.log(`[AI] Ollama: sending image via images field`);
-    messages.push({ role: "user", content: userPrompt, images: [base64] });
+    if (ollamaSupportsVision(model)) {
+      const base64 = file.buffer.toString("base64");
+      console.log(`[AI] Ollama: sending image (${file.mimeType}, ${file.buffer.length}b) to vision model ${model}`);
+      messages.push({ role: "user", content: userPrompt, images: [base64] });
+    } else {
+      console.warn(`[AI] Ollama: model "${model}" may not support vision — sending text-only prompt (image omitted)`);
+      messages.push({ role: "user", content: userPrompt });
+    }
   } else {
     if (file) console.log(`[AI] Ollama: file type ${file.mimeType} not natively supported, falling back to text-only`);
     messages.push({ role: "user", content: userPrompt });
   }
 
+  const bodyPayload = { model, stream: false, messages };
+  console.log(`[AI] Ollama: POST ${ollamaUrl}/api/chat  model=${model}  messages=${messages.length}`);
+
   const res = await fetch(`${ollamaUrl}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model, stream: false, messages }),
+    body: JSON.stringify(bodyPayload),
     signal: AbortSignal.timeout(120_000),
   });
 
+  const latencyMs = Date.now(); // approximate — just for logging
+  console.log(`[AI] Ollama: response status ${res.status}`);
+
   if (!res.ok) {
-    const data = await res.json().catch(() => null);
-    console.error(`[AI] Ollama error body:`, JSON.stringify(data));
-    throw new Error(data?.error ?? `Ollama HTTP ${res.status}`);
+    const errBody = await res.json().catch(() => null);
+    console.error(`[AI] Ollama error body:`, JSON.stringify(errBody));
+    throw new Error(errBody?.error ?? `Ollama HTTP ${res.status}`);
   }
 
   const data = await res.json();
   const text = data.message?.content ?? "";
-  console.log(`[AI] OLLAMA RESPONSE:\n${text}`);
+  console.log(`[AI] Ollama response (${text.length} chars): ${text.slice(0, 200)}${text.length > 200 ? "…" : ""}`);
   console.log(`[AI] ─────────────────────────────────────────────────────`);
   return text;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type { EventCategory } from "@prisma/client";
 
@@ -38,6 +39,19 @@ const CATEGORIES: { value: EventCategory; label: string }[] = [
   { value: "ALLERGY", label: "Allergy" },
   { value: "OTHER", label: "Other" },
 ];
+
+function FileUploadButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="w-full py-1.5 px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {pending ? "Uploading…" : "Upload"}
+    </button>
+  );
+}
 
 function localNow() {
   const d = new Date();
@@ -358,12 +372,7 @@ export default function AddEventForm({
                 <p className="text-xs text-gray-400">
                   Text files (.txt, .csv, etc.) will be read and sent for analysis.
                 </p>
-                <button
-                  type="submit"
-                  className="w-full py-1.5 px-3 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                >
-                  Upload &amp; process
-                </button>
+                <FileUploadButton />
               </form>
             )}
           </div>

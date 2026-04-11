@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { EventCategory } from "@prisma/client";
 
 export type TimelineEntryRow = {
@@ -56,6 +57,19 @@ export default function MemberTimeline({
   member: MemberTimelineData;
   editingEntryId?: string | null;
 }) {
+  const router = useRouter();
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+
+  function toggleExpand(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    setExpandedEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
       {/* Member header */}
@@ -85,24 +99,37 @@ export default function MemberTimeline({
               const cat = CATEGORY[entry.event.category];
               const isOpen     = entry.id === editingEntryId;
               const hasSummary = Boolean(entry.event.summary);
+              const isExpanded = expandedEntries.has(entry.id);
 
               // Pulsing = form open but no summary yet (awaiting processing)
               // Selected = form open and summary exists
               const isPulsing  = isOpen && !hasSummary;
               const isSelected = isOpen && hasSummary;
 
-              // Dot top offset:
-              //   text-sm line-height ≈ 20px → text centre at 10px
-              //   dot is 12px tall → needs top = 10 - 6 = 4px (normal)
-              //   when open, li gets py-2 (8px top pad) → top = 8 + 10 - 6 = 12px
-              const dotTop  = isOpen ? "12px" : "4px";
-              const dotLeft = isOpen ? "8px"  : "0px";
+              // Dot positioning — constant regardless of open/closed state:
+              //   li always has py-1 (4px top padding)
+              //   text-sm line-height ≈ 20px → text centre at 10px from content top
+              //   dot is 12px tall → top = 4 + 10 - 6 = 8px from li top
+              //
+              // When open the background extends 8px left/right via -mx-2.
+              // pl-9 (36px) replaces pl-7 (28px) to compensate, keeping text in place.
+              // dotLeft shifts to 8px so the dot stays at the same screen position
+              // while the background now has an 8px left gap — matching the top gap.
+              const dotTop  = "8px";
+              const dotLeft = isOpen ? "8px" : "0px";
 
               return (
                 <li
                   key={entry.id}
-                  className={`relative pl-7 rounded-lg transition-colors ${
-                    isOpen ? "bg-blue-50 -mx-2 px-9 py-2" : ""
+                  onClick={() => {
+                    if (!isOpen) {
+                      router.push(`/dashboard?memberId=${member.id}&edit=${entry.id}`);
+                    }
+                  }}
+                  className={`relative py-1 rounded-lg transition-colors ${
+                    isOpen
+                      ? "bg-blue-50 -mx-2 pl-9 pr-2"
+                      : "pl-7 cursor-pointer hover:bg-gray-50"
                   }`}
                 >
                   {/* Dot — vertically centred to the event title line */}
@@ -153,26 +180,25 @@ export default function MemberTimeline({
                     </p>
 
                     {entry.event.summary && (
-                      <p className="mt-1 text-sm text-gray-700">
-                        {entry.event.summary}
-                      </p>
+                      <div className="mt-1">
+                        <p className={`text-sm text-gray-700 ${isExpanded ? "" : "line-clamp-4"}`}>
+                          {entry.event.summary}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={(e) => toggleExpand(e, entry.id)}
+                          className="text-xs text-gray-400 hover:text-blue-600 transition-colors mt-0.5 float-right"
+                        >
+                          {isExpanded ? "see less" : "see more..."}
+                        </button>
+                        <div className="clear-both" />
+                      </div>
                     )}
 
                     {entry.event.description && (
                       <p className="mt-1 text-sm text-gray-400">
                         {entry.event.description}
                       </p>
-                    )}
-
-                    {!isOpen && (
-                      <div className="mt-1">
-                        <Link
-                          href={`/dashboard?memberId=${member.id}&edit=${entry.id}`}
-                          className="text-xs text-gray-400 hover:text-blue-600 transition-colors"
-                        >
-                          Edit / Details
-                        </Link>
-                      </div>
                     )}
                   </div>
                 </li>
