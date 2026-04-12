@@ -269,7 +269,7 @@ async function callOllama(
     messages.push({ role: "user", content: userPrompt });
   }
 
-  const bodyPayload = { model, stream: false, messages };
+  const bodyPayload = { model, stream: false, messages, options: { num_predict: 2048 } };
   console.log(`[AI] Ollama: POST ${ollamaUrl}/api/chat  model=${model}  messages=${messages.length}`);
 
   const res = await fetch(`${ollamaUrl}/api/chat`, {
@@ -290,7 +290,7 @@ async function callOllama(
 
   const data = await res.json();
   const text = data.message?.content ?? "";
-  console.log(`[AI] Ollama response (${text.length} chars): ${text.slice(0, 200)}${text.length > 200 ? "…" : ""}`);
+  console.log(`[AI] Ollama response (${text.length} chars): ${text.slice(0, 1000)}${text.length > 1000 ? "…" : ""}`);
   console.log(`[AI] ─────────────────────────────────────────────────────`);
   return text;
 }

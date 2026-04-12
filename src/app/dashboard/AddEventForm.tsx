@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type { EventCategory } from "@prisma/client";
+import FileViewerModal, { FileTypeIcon } from "@/src/components/FileViewerModal";
+import type { ViewerFile } from "@/src/components/FileViewerModal";
 
 export type EditingEntry = {
   entryId: string;
@@ -69,6 +71,8 @@ export default function AddEventForm({
   addTextDetailAction,
   addFileDetailAction,
   deleteDetailAction,
+  deleteEventAction,
+  wideLayout = false,
 }: {
   selectedMemberId: string;
   addAction: (formData: FormData) => Promise<void>;
@@ -79,6 +83,8 @@ export default function AddEventForm({
   addTextDetailAction?: (formData: FormData) => Promise<void>;
   addFileDetailAction?: (formData: FormData) => Promise<void>;
   deleteDetailAction?: (formData: FormData) => Promise<void>;
+  deleteEventAction?: (formData: FormData) => Promise<void>;
+  wideLayout?: boolean;
 }) {
   const isEditing = editing !== null;
   const now = localNow();
@@ -87,6 +93,8 @@ export default function AddEventForm({
     isEditing && editing.endTimeInput !== null,
   );
   const [detailTab, setDetailTab] = useState<"text" | "file">("text");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [viewer, setViewer] = useState<ViewerFile | null>(null);
 
   useEffect(() => {
     setHasDuration(isEditing && editing?.endTimeInput !== null);
@@ -103,13 +111,15 @@ export default function AddEventForm({
     addTextDetailAction !== undefined &&
     addFileDetailAction !== undefined;
 
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+  const inner = (
+    <>
       {/* ── Event form ─────────────────────────────────── */}
-      <div className="p-5">
-        <p className="text-sm font-medium text-gray-700 mb-4">
-          {isEditing ? "Edit event" : "Add event"}
-        </p>
+      <div className={wideLayout ? "px-6 pt-5 pb-4" : "p-5"}>
+        {!wideLayout && (
+          <p className="text-sm font-medium text-gray-700 mb-4">
+            {isEditing ? "Edit event" : "Add event"}
+          </p>
+        )}
 
         <form action={isEditing ? updateAction : addAction} className="space-y-4">
           <input type="hidden" name="userId" value={selectedMemberId} />
@@ -136,38 +146,39 @@ export default function AddEventForm({
             />
           </div>
 
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Category
-            </label>
-            <select
-              key={editing?.entryId ?? "new"}
-              name="category"
-              defaultValue={editing?.category ?? "OTHER"}
-              className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Category + Date & time — side by side when wide */}
+          <div className={wideLayout ? "grid grid-cols-2 gap-4" : "space-y-4"}>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Category
+              </label>
+              <select
+                key={editing?.entryId ?? "new"}
+                name="category"
+                defaultValue={editing?.category ?? "OTHER"}
+                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Start time */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Date &amp; time <span className="text-red-500">*</span>
-            </label>
-            <input
-              key={editing?.entryId ?? "new"}
-              type="datetime-local"
-              name="startTime"
-              required
-              defaultValue={editing?.startTimeInput ?? now}
-              className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Date &amp; time <span className="text-red-500">*</span>
+              </label>
+              <input
+                key={editing?.entryId ?? "new"}
+                type="datetime-local"
+                name="startTime"
+                required
+                defaultValue={editing?.startTimeInput ?? now}
+                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+            </div>
           </div>
 
           {/* Optional end time */}
@@ -192,36 +203,37 @@ export default function AddEventForm({
             )}
           </div>
 
-          {/* Summary */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Summary{" "}
-              <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <textarea
-              key={editing?.entryId ?? "new"}
-              name="summary"
-              rows={2}
-              defaultValue={editing?.summary ?? ""}
-              placeholder="Brief overview of the event…"
-              className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
-          </div>
+          {/* Summary + Notes — side by side when wide */}
+          <div className={wideLayout ? "grid grid-cols-2 gap-4" : "space-y-4"}>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Summary{" "}
+                <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                key={editing?.entryId ?? "new"}
+                name="summary"
+                rows={3}
+                defaultValue={editing?.summary ?? ""}
+                placeholder="Brief overview of the event…"
+                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+            </div>
 
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notes{" "}
-              <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <textarea
-              key={editing?.entryId ?? "new"}
-              name="description"
-              rows={3}
-              defaultValue={editing?.description ?? ""}
-              placeholder="Any additional details…"
-              className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes{" "}
+                <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                key={editing?.entryId ?? "new"}
+                name="description"
+                rows={3}
+                defaultValue={editing?.description ?? ""}
+                placeholder="Any additional details…"
+                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+            </div>
           </div>
 
           <div className="flex gap-2 pt-1">
@@ -241,6 +253,47 @@ export default function AddEventForm({
             )}
           </div>
         </form>
+
+        {/* ── Delete event ── */}
+        {isEditing && deleteEventAction && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            {!confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="w-full py-2 px-4 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg border border-red-200 transition-colors"
+              >
+                Delete event
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-700 text-center">
+                  Delete <span className="font-medium">{editing!.title}</span>? This cannot be undone.
+                </p>
+                <div className="flex gap-2">
+                  <form action={deleteEventAction} className="flex-1">
+                    <input type="hidden" name="userId" value={selectedMemberId} />
+                    <input type="hidden" name="entryId" value={editing!.entryId} />
+                    <input type="hidden" name="eventId" value={editing!.eventId} />
+                    <button
+                      type="submit"
+                      className="w-full py-2 px-4 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                    >
+                      Yes, delete
+                    </button>
+                  </form>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="flex-1 py-2 px-4 text-sm font-medium text-gray-600 hover:text-gray-800 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Inline details section (only when editing) ── */}
@@ -254,18 +307,33 @@ export default function AddEventForm({
               </p>
               {editingDetails!.map((detail) => (
                 <div key={detail.id} className="px-5 py-3 flex items-start gap-2">
-                  {/* Source icon */}
-                  <div className="shrink-0 mt-0.5 text-gray-400">
-                    {detail.sourceType === "file" ? (
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                    ) : (
+                  {/* File icon — clickable if there's a file to view */}
+                  {detail.sourceType === "file" && detail.filePath ? (
+                    <button
+                      type="button"
+                      title={`View ${detail.fileName ?? "file"}`}
+                      onClick={() =>
+                        setViewer({
+                          url: `/api/files/${detail.filePath}`,
+                          mimeType: detail.mimeType,
+                          fileName: detail.fileName,
+                        })
+                      }
+                      className="shrink-0 mt-0.5 text-gray-400 hover:text-blue-600 transition-colors"
+                    >
+                      <FileTypeIcon
+                        mimeType={detail.mimeType}
+                        fileName={detail.fileName}
+                        className="w-3.5 h-3.5"
+                      />
+                    </button>
+                  ) : (
+                    <div className="shrink-0 mt-0.5 text-gray-400">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
@@ -274,15 +342,33 @@ export default function AddEventForm({
                         {detail.documentType}
                       </p>
                     )}
-                    {detail.fileName && (
-                      <p className="text-xs text-gray-400 truncate">{detail.fileName}</p>
+                    {detail.filePath ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setViewer({
+                            url: `/api/files/${detail.filePath}`,
+                            mimeType: detail.mimeType,
+                            fileName: detail.fileName,
+                          })
+                        }
+                        className="text-xs text-blue-600 hover:underline truncate block max-w-full text-left"
+                      >
+                        {detail.fileName ?? "View file"}
+                      </button>
+                    ) : (
+                      <>
+                        {detail.fileName && (
+                          <p className="text-xs text-gray-400 truncate">{detail.fileName}</p>
+                        )}
+                        {!detail.documentType && !detail.fileName && (
+                          <p className="text-xs text-gray-400 italic">
+                            {detail.processed ? "Text note" : "Processing…"}
+                          </p>
+                        )}
+                      </>
                     )}
-                    {!detail.documentType && !detail.fileName && (
-                      <p className="text-xs text-gray-400 italic">
-                        {detail.processed ? "Text note" : "Processing…"}
-                      </p>
-                    )}
-                    {detail.originalText && (
+                    {detail.originalText && !detail.filePath && (
                       <p className="text-xs text-gray-400 line-clamp-2 mt-0.5">
                         {detail.originalText.slice(0, 120)}
                         {detail.originalText.length > 120 && "…"}
@@ -378,6 +464,20 @@ export default function AddEventForm({
           </div>
         </div>
       )}
-    </div>
+    </>
+  );
+
+  const modal = viewer ? (
+    <FileViewerModal file={viewer} onClose={() => setViewer(null)} />
+  ) : null;
+
+  if (wideLayout) return <>{inner}{modal}</>;
+  return (
+    <>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        {inner}
+      </div>
+      {modal}
+    </>
   );
 }

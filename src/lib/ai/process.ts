@@ -1,7 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
 import { db } from "@/src/lib/db";
+import { localToUtc } from "@/src/lib/timezone";
 import { generateText, type FileAttachment } from "./chat";
+import type { EventCategory } from "@prisma/client";
 
 // ── File type detection ───────────────────────────────────────────────────
 
@@ -58,7 +60,7 @@ async function buildSystemPrompt(userId: string, isFile: boolean): Promise<strin
 
 // ── Response parsing ──────────────────────────────────────────────────────
 
-type TableRow = string[];
+type TableRow = string[] | Record<string, unknown>;
 
 interface TableData {
   name?: string;
@@ -72,17 +74,62 @@ interface AiResponse {
   tableData?: TableData[];
 }
 
+// Extended response for auto-creating events from a file upload
+interface AiEventResponse extends AiResponse {
+  title: string;
+  category: EventCategory;
+  eventDate: string | null;  // YYYY-MM-DD
+  eventTime: string | null;  // HH:MM (24h)
+}
+
+const VALID_CATEGORIES = new Set<EventCategory>([
+  "APPOINTMENT", "DIAGNOSIS", "MEDICATION", "PROCEDURE",
+  "VACCINATION", "MEASUREMENT", "SYMPTOM", "ALLERGY", "OTHER",
+]);
+
+function stripFences(raw: string): string {
+  // Remove ```json ... ``` or ``` ... ``` wrappers
+  return raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+}
+
+/** Extract a single string field value from raw JSON-like text using regex.
+ *  Works even when the JSON is truncated, as long as the field itself is complete. */
+function extractStringField(raw: string, key: string): string | null {
+  const match = raw.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+  if (!match) return null;
+  // Unescape basic JSON escape sequences
+  return match[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function extractJson(raw: string): unknown {
+  const cleaned = stripFences(raw);
+  // Try direct parse first (handles well-formed responses)
+  try { return JSON.parse(cleaned); } catch { /* fall through */ }
+  // Try extracting the first {...} block (handles leading/trailing text)
+  const block = cleaned.match(/\{[\s\S]*\}/);
+  if (block) {
+    try { return JSON.parse(block[0]); } catch { /* fall through */ }
+  }
+  // JSON is truncated — extract individual string fields via regex
+  // and return a partial object (tableData will be missing but that's ok)
+  const partial: Record<string, string | null> = {};
+  for (const key of ["documentType", "title", "category", "eventDate", "eventTime", "summary"]) {
+    partial[key] = extractStringField(cleaned, key);
+  }
+  if (!partial.summary && !partial.title) throw new Error("No usable fields found in truncated response");
+  return partial;
+}
+
 function parseAiResponse(raw: string): AiResponse {
   try {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("No JSON object found");
-    const parsed = JSON.parse(match[0]);
+    const parsed = extractJson(raw) as Record<string, unknown>;
     return {
       documentType: String(parsed.documentType ?? "Document").slice(0, 100),
       summary: String(parsed.summary ?? "").slice(0, 2000),
       tableData: Array.isArray(parsed.tableData) ? parsed.tableData : undefined,
     };
-  } catch {
+  } catch (e) {
+    console.warn("[AI] parseAiResponse failed:", String(e), "| raw:", raw.slice(0, 300));
     return { documentType: "Document", summary: raw.trim().slice(0, 2000) };
   }
 }
@@ -101,7 +148,14 @@ function formatTables(tables: TableData[]): string {
       if (t.name) lines.push(`## ${t.name}`);
       if (t.headers?.length) lines.push(t.headers.join(" | "));
       if (t.rows?.length) {
-        t.rows.forEach((row) => lines.push(row.join(" | ")));
+        t.rows.forEach((row) => {
+          // Row can be an array of strings/values, or an object (LLM returned keyed rows)
+          if (Array.isArray(row)) {
+            lines.push(row.join(" | "));
+          } else if (row && typeof row === "object") {
+            lines.push(Object.values(row as Record<string, unknown>).join(" | "));
+          }
+        });
       }
       return lines.join("\n");
     })
@@ -235,5 +289,145 @@ Use an empty array for tableData if no tables are present.`;
     console.log(`[AI] Processed detail ${detailId}: type="${documentType}"`);
   } catch (e) {
     console.error(`[AI] Failed to process detail ${detailId}:`, e);
+  }
+}
+
+// ── Auto-create event from file ────────────────────────────────────────────
+// Used by the "Upload file" flow where no event exists yet.
+// Runs the LLM with an extended schema that also extracts title, category,
+// and event date/time, then updates the placeholder event + entry created
+// by the server action before calling this function.
+
+function parseAiEventResponse(raw: string): AiEventResponse {
+  try {
+    const parsed = extractJson(raw) as Record<string, unknown>;
+    const category = VALID_CATEGORIES.has(parsed.category as EventCategory)
+      ? (parsed.category as EventCategory)
+      : "OTHER";
+    return {
+      documentType: String(parsed.documentType ?? "Document").slice(0, 100),
+      title: String(parsed.title ?? "Uploaded document").slice(0, 200),
+      category,
+      eventDate: typeof parsed.eventDate === "string" ? parsed.eventDate : null,
+      eventTime: typeof parsed.eventTime === "string" ? parsed.eventTime : null,
+      summary: String(parsed.summary ?? "").slice(0, 2000),
+      tableData: Array.isArray(parsed.tableData) ? parsed.tableData : undefined,
+    };
+  } catch (e) {
+    console.warn("[AI] parseAiEventResponse failed:", String(e), "| raw:", raw.slice(0, 300));
+    return {
+      documentType: "Document",
+      title: "Uploaded document",
+      category: "OTHER",
+      eventDate: null,
+      eventTime: null,
+      summary: raw.trim().slice(0, 2000),
+    };
+  }
+}
+
+/**
+ * Process a file upload that auto-creates an event.
+ * The server action creates a placeholder Event + TimelineEntry first,
+ * then calls this to populate them with AI-extracted data.
+ */
+export async function processNewEventFromFile(
+  detailId: string,
+  eventId: string,
+  entryId: string,
+  fileName: string,
+  mimeType: string | null,
+  userId: string,
+  memberTz: string,
+): Promise<void> {
+  const systemPrompt = await buildSystemPrompt(userId, true);
+
+  // Load file from disk
+  const detail = await db.eventDetail.findUnique({
+    where: { id: detailId },
+    select: { filePath: true, originalText: true },
+  });
+
+  let fileAttachment: FileAttachment | undefined;
+  let hasText = Boolean(detail?.originalText?.trim());
+
+  if (detail?.filePath && !hasText) {
+    try {
+      const uploadDir = process.env.UPLOAD_DIR ?? "/app/uploads";
+      const absPath = path.join(uploadDir, detail.filePath);
+      const buffer = await fs.readFile(absPath);
+      fileAttachment = { buffer, mimeType: mimeType ?? "application/octet-stream", fileName };
+      console.log(`[AI] processNewEventFromFile: loaded ${absPath} (${buffer.length} bytes)`);
+    } catch (e) {
+      console.error(`[AI] processNewEventFromFile: could not read file:`, e);
+    }
+  }
+
+  const textContent = hasText ? detail!.originalText!.slice(0, 8000) : null;
+
+  const userPrompt = `Analyze this medical document${fileAttachment ? "" : ` named "${fileName}"`}. Extract all content and infer the event details. Respond with JSON only — no markdown fences:
+{
+  "documentType": "brief label (e.g. lab results, prescription, discharge summary, imaging report, vaccination record)",
+  "title": "short event title, 8 words max (e.g. 'Annual Blood Test', 'GP Appointment', 'MMR Vaccination')",
+  "category": "APPOINTMENT|DIAGNOSIS|MEDICATION|PROCEDURE|VACCINATION|MEASUREMENT|SYMPTOM|ALLERGY|OTHER",
+  "eventDate": "YYYY-MM-DD — the date the event occurred as stated in the document, or null if not found",
+  "eventTime": "HH:MM in 24-hour format — time the event occurred, or null if not found",
+  "summary": "200 words or less — describe the contents and your analysis in context of the patient history",
+  "tableData": [
+    {
+      "name": "table name",
+      "headers": ["col1", "col2"],
+      "rows": [["val1", "val2"]]
+    }
+  ]
+}
+
+Use an empty array for tableData if no tables are present.${textContent ? `\n\nDocument:\n${textContent}` : ""}`;
+
+  try {
+    const raw = await generateText(userPrompt, systemPrompt, fileAttachment);
+    const { documentType, title, category, eventDate, eventTime, summary, tableData } =
+      parseAiEventResponse(raw);
+
+    // Determine startTime from extracted date, fall back to now
+    let startTime: Date | undefined;
+    if (eventDate && /^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+      const localStr = `${eventDate}T${eventTime && /^\d{2}:\d{2}$/.test(eventTime) ? eventTime : "00:00"}`;
+      try {
+        startTime = localToUtc(localStr, memberTz);
+        console.log(`[AI] processNewEventFromFile: extracted date ${localStr} → ${startTime.toISOString()}`);
+      } catch {
+        console.warn(`[AI] processNewEventFromFile: could not parse date "${localStr}"`);
+      }
+    }
+
+    const extractedText =
+      !hasText && tableData && tableData.length > 0 ? formatTables(tableData) : undefined;
+
+    if (tableData?.length) {
+      console.log(`[AI] processNewEventFromFile: ${tableData.length} table(s) extracted`);
+    }
+
+    await db.$transaction([
+      db.event.update({
+        where: { id: eventId },
+        data: { title, category, summary },
+      }),
+      db.eventDetail.update({
+        where: { id: detailId },
+        data: {
+          documentType,
+          processed: true,
+          ...(extractedText !== undefined ? { originalText: extractedText } : {}),
+        },
+      }),
+      ...(startTime
+        ? [db.timelineEntry.update({ where: { id: entryId }, data: { startTime } })]
+        : []),
+    ]);
+
+    console.log(`[AI] processNewEventFromFile: event updated — title="${title}" category=${category}`);
+  } catch (e) {
+    console.error(`[AI] processNewEventFromFile failed:`, e);
   }
 }

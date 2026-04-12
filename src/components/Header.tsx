@@ -1,7 +1,13 @@
 import Link from "next/link";
 import ProfileMenu from "./ProfileMenu";
 
-export default function Header({ username }: { username: string }) {
+export default function Header({
+  username,
+  actions,
+}: {
+  username: string;
+  actions?: React.ReactNode;
+}) {
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
       <Link href="/dashboard">
@@ -9,7 +15,10 @@ export default function Header({ username }: { username: string }) {
           Family Health
         </h1>
       </Link>
-      <ProfileMenu username={username} />
+      <div className="flex items-center gap-2">
+        {actions}
+        <ProfileMenu username={username} />
+      </div>
     </header>
   );
 }
