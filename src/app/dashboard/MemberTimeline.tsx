@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import type { EventCategory } from "@prisma/client";
 import FileViewerModal, { FileTypeIcon } from "@/src/components/FileViewerModal";
 import type { ViewerFile } from "@/src/components/FileViewerModal";
@@ -65,11 +65,16 @@ function formatInTz(iso: string, timezone: string) {
 export default function MemberTimeline({
   member,
   editingEntryId,
+  mode = "dashboard",
 }: {
   member: MemberTimelineData;
   editingEntryId?: string | null;
+  /** dashboard — compact column with "Timeline" heading + "view timeline" link;
+   *  page      — no inner header, summaries always expanded, full-width friendly */
+  mode?: "dashboard" | "page";
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   const [viewer, setViewer] = useState<ViewerFile | null>(null);
 
@@ -93,21 +98,23 @@ export default function MemberTimeline({
     });
   }
 
+  const isDashboard = mode === "dashboard";
+
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-        {/* Member header */}
-        <div className="flex items-center gap-2 mb-5">
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-semibold text-blue-700 shrink-0">
-            {(member.name ?? "?")[0].toUpperCase()}
+        {/* Header */}
+        {isDashboard ? (
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold text-gray-700">Timeline</h3>
+            <a
+              href={`/timeline?memberId=${member.id}`}
+              className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+            >
+              view timeline →
+            </a>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-800">
-              {member.name ?? "Unknown"}
-            </p>
-            <p className="text-xs text-gray-400">{member.timezone}</p>
-          </div>
-        </div>
+        ) : null}
 
         {member.entries.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-6">
@@ -118,19 +125,14 @@ export default function MemberTimeline({
             {/* Vertical rule */}
             <div className="absolute left-[5px] top-2 bottom-2 w-0.5 bg-gray-100" />
 
-            <ul className="space-y-6">
+            <ul className={isDashboard ? "space-y-6" : "space-y-8"}>
               {member.entries.map((entry) => {
                 const cat = CATEGORY[entry.event.category];
-                const isOpen     = entry.id === editingEntryId;
+                const isOpen     = isDashboard && entry.id === editingEntryId;
                 const hasSummary = Boolean(entry.event.summary);
-                const isExpanded = expandedEntries.has(entry.id);
+                const isExpanded = !isDashboard || expandedEntries.has(entry.id);
                 const isPulsing  = isOpen && !hasSummary;
 
-                // Dot positioning — constant in both states:
-                //   li always has py-1 (4px top padding)
-                //   text-sm line-height ≈ 20px → centre at 10px from content top
-                //   dot is 12px → top = 4 + 10 - 6 = 8px
-                //   when open: -mx-2 extends bg 8px left; dotLeft shifts 8px to match
                 const dotTop  = "8px";
                 const dotLeft = isOpen ? "8px" : "0px";
 
@@ -139,7 +141,7 @@ export default function MemberTimeline({
                     key={entry.id}
                     onClick={() => {
                       if (!isOpen) {
-                        router.push(`/dashboard?memberId=${member.id}&edit=${entry.id}`);
+                        router.push(`${pathname}?memberId=${member.id}&edit=${entry.id}`);
                       }
                     }}
                     className={`relative py-1 rounded-lg transition-colors ${
@@ -168,7 +170,7 @@ export default function MemberTimeline({
                     {/* Content */}
                     <div>
                       <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                        <span className="text-sm font-medium text-gray-800">
+                        <span className={`font-medium text-gray-800 ${isDashboard ? "text-sm" : "text-base"}`}>
                           {entry.event.title}
                         </span>
                         <span
@@ -189,22 +191,26 @@ export default function MemberTimeline({
                       </p>
 
                       {entry.event.summary && (
-                        <div className="mt-1">
+                        <div className="mt-1.5">
                           <p
-                            className={`text-sm text-gray-700 ${
-                              isExpanded ? "" : "line-clamp-4"
+                            className={`text-sm text-gray-700 leading-relaxed ${
+                              isDashboard && !isExpanded ? "line-clamp-4" : ""
                             }`}
                           >
                             {entry.event.summary}
                           </p>
-                          <button
-                            type="button"
-                            onClick={(e) => toggleExpand(e, entry.id)}
-                            className="text-xs text-gray-400 hover:text-blue-600 transition-colors mt-0.5 float-right"
-                          >
-                            {isExpanded ? "see less" : "see more..."}
-                          </button>
-                          <div className="clear-both" />
+                          {isDashboard && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => toggleExpand(e, entry.id)}
+                                className="text-xs text-gray-400 hover:text-blue-600 transition-colors mt-0.5 float-right"
+                              >
+                                {isExpanded ? "see less" : "see more..."}
+                              </button>
+                              <div className="clear-both" />
+                            </>
+                          )}
                         </div>
                       )}
 

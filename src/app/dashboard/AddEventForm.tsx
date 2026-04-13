@@ -67,6 +67,7 @@ export default function AddEventForm({
   updateAction,
   editing,
   cancelHref,
+  returnPath = "/dashboard",
   editingDetails,
   addTextDetailAction,
   addFileDetailAction,
@@ -79,6 +80,8 @@ export default function AddEventForm({
   updateAction: (formData: FormData) => Promise<void>;
   editing: EditingEntry | null;
   cancelHref: string;
+  /** Base path the server actions redirect back to (e.g. /dashboard or /timeline) */
+  returnPath?: string;
   editingDetails?: EventDetailRow[];
   addTextDetailAction?: (formData: FormData) => Promise<void>;
   addFileDetailAction?: (formData: FormData) => Promise<void>;
@@ -123,6 +126,7 @@ export default function AddEventForm({
 
         <form action={isEditing ? updateAction : addAction} className="space-y-4">
           <input type="hidden" name="userId" value={selectedMemberId} />
+          <input type="hidden" name="returnPath" value={returnPath} />
           {isEditing && (
             <>
               <input type="hidden" name="entryId" value={editing.entryId} />
@@ -273,6 +277,7 @@ export default function AddEventForm({
                 <div className="flex gap-2">
                   <form action={deleteEventAction} className="flex-1">
                     <input type="hidden" name="userId" value={selectedMemberId} />
+                    <input type="hidden" name="returnPath" value={returnPath} />
                     <input type="hidden" name="entryId" value={editing!.entryId} />
                     <input type="hidden" name="eventId" value={editing!.eventId} />
                     <button
@@ -380,6 +385,7 @@ export default function AddEventForm({
                   {deleteDetailAction && (
                     <form action={deleteDetailAction} className="shrink-0">
                       <input type="hidden" name="userId" value={selectedMemberId} />
+                      <input type="hidden" name="returnPath" value={returnPath} />
                       <input type="hidden" name="entryId" value={editing!.entryId} />
                       <input type="hidden" name="detailId" value={detail.id} />
                       {detail.filePath && (
@@ -428,6 +434,7 @@ export default function AddEventForm({
             {detailTab === "text" ? (
               <form action={addTextDetailAction} className="space-y-2">
                 <input type="hidden" name="userId" value={selectedMemberId} />
+                <input type="hidden" name="returnPath" value={returnPath} />
                 <input type="hidden" name="entryId" value={editing!.entryId} />
                 <input type="hidden" name="eventId" value={editing!.eventId} />
                 <textarea
@@ -447,6 +454,7 @@ export default function AddEventForm({
             ) : (
               <form action={addFileDetailAction} className="space-y-2">
                 <input type="hidden" name="userId" value={selectedMemberId} />
+                <input type="hidden" name="returnPath" value={returnPath} />
                 <input type="hidden" name="entryId" value={editing!.entryId} />
                 <input type="hidden" name="eventId" value={editing!.eventId} />
                 <input

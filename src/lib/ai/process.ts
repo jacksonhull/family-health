@@ -289,6 +289,11 @@ Use an empty array for tableData if no tables are present.`;
     console.log(`[AI] Processed detail ${detailId}: type="${documentType}"`);
   } catch (e) {
     console.error(`[AI] Failed to process detail ${detailId}:`, e);
+    return;
+  }
+
+  if (entry?.userId) {
+    await refreshMedicalSummary(entry.userId);
   }
 }
 
@@ -429,5 +434,61 @@ Use an empty array for tableData if no tables are present.${textContent ? `\n\nD
     console.log(`[AI] processNewEventFromFile: event updated — title="${title}" category=${category}`);
   } catch (e) {
     console.error(`[AI] processNewEventFromFile failed:`, e);
+    return;
+  }
+
+  await refreshMedicalSummary(userId);
+}
+
+// ── Medical summary refresh ────────────────────────────────────────────────
+// Called after any event is processed. Merges the new event data into the
+// patient's running medical summary using a second AI pass.
+
+export async function refreshMedicalSummary(userId: string): Promise<void> {
+  try {
+    // Load prompt template + current summary + 10 most recent events in parallel
+    const [promptTemplate, currentSummary, entries] = await Promise.all([
+      loadPromptFile("MEDICAL_SUMMARY"),
+      getPatientHistory(userId),
+      db.timelineEntry.findMany({
+        where: { userId },
+        orderBy: { startTime: "desc" },
+        take: 10,
+        select: {
+          startTime: true,
+          event: { select: { title: true, category: true, summary: true } },
+        },
+      }),
+    ]);
+
+    if (!promptTemplate) {
+      console.warn("[AI] MEDICAL_SUMMARY.md not found — skipping summary refresh");
+      return;
+    }
+    if (entries.length === 0) return;
+
+    const eventLines = entries
+      .map((e) => {
+        const date = e.startTime.toISOString().split("T")[0];
+        const cat  = e.event.category.charAt(0) + e.event.category.slice(1).toLowerCase();
+        const snip = e.event.summary?.trim().slice(0, 200) ?? "";
+        return `• [${date}] ${cat}: ${e.event.title}${snip ? `\n  ${snip}` : ""}`;
+      })
+      .join("\n");
+
+    const userPrompt = promptTemplate
+      .replace("<currentMedicalSummary/>", currentSummary)
+      .replace("<previous10MedicalSummaries/>", eventLines);
+
+    const systemPrompt = await loadPromptFile("DEFAULT");
+
+    console.log(`[AI] refreshMedicalSummary prompt:\n${"─".repeat(60)}\n${userPrompt}\n${"─".repeat(60)}`);
+    const updated = (await generateText(userPrompt, systemPrompt)).trim();
+    if (!updated) return;
+
+    await db.medicalHistory.create({ data: { userId, summary: updated } });
+    console.log(`[AI] Medical summary refreshed for user ${userId}`);
+  } catch (e) {
+    console.error(`[AI] refreshMedicalSummary failed:`, e);
   }
 }

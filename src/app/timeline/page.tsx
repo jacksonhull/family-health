@@ -2,6 +2,12 @@ import { redirect } from "next/navigation";
 import { auth } from "@/src/auth";
 import { db } from "@/src/lib/db";
 import { utcToLocalInput } from "@/src/lib/timezone";
+import Header from "@/src/components/Header";
+import SubNav from "@/src/components/SubNav";
+import MemberDropdown from "@/src/components/MemberDropdown";
+import AddEventModal from "@/src/app/dashboard/AddEventModal";
+import MemberTimeline from "@/src/app/dashboard/MemberTimeline";
+import EditEventModal from "@/src/app/dashboard/EditEventModal";
 import {
   updateEvent,
   addTextDetail,
@@ -11,39 +17,26 @@ import {
   uploadAndCreateEvent,
   addEventWithFile,
 } from "@/src/app/actions/eventActions";
-import Header from "@/src/components/Header";
-import AddEventModal from "./AddEventModal";
-import EditEventModal from "./EditEventModal";
-import DashboardShell from "./DashboardShell";
-import MemberTimeline from "./MemberTimeline";
-import MemberDropdown from "@/src/components/MemberDropdown";
-import SubNav from "@/src/components/SubNav";
-import type { MemberTimelineData } from "./MemberTimeline";
-import type { EditingEntry, EventDetailRow } from "./AddEventForm";
+import type { MemberTimelineData } from "@/src/app/dashboard/MemberTimeline";
+import type { EditingEntry, EventDetailRow } from "@/src/app/dashboard/AddEventForm";
 
-export default async function DashboardPage({
+export default async function TimelinePage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    memberId?: string;
-    edit?: string;
-    success?: string;
-    error?: string;
-  }>;
+  searchParams: Promise<{ memberId?: string; edit?: string }>;
 }) {
   const session = await auth();
   if (!session) redirect("/login");
 
-  const { memberId, edit, success } = await searchParams;
+  const { memberId, edit } = await searchParams;
   const isAdmin = session.user.role === "ADMINISTRATOR";
-
   const selectedMemberId = memberId ?? session.user.id;
 
   if (!isAdmin && selectedMemberId !== session.user.id) {
-    redirect(`/dashboard?memberId=${session.user.id}`);
+    redirect(`/timeline?memberId=${session.user.id}`);
   }
 
-  // ── All members (for the selector strip) ─────────────────────────────────
+  // All members for the dropdown
   const allMembers = isAdmin
     ? await db.user.findMany({
         where: { status: "ACTIVE" },
@@ -52,7 +45,7 @@ export default async function DashboardPage({
       })
     : [{ id: session.user.id, name: session.user.name ?? null }];
 
-  // ── Selected member + timeline (with file details) ────────────────────────
+  // Selected member + full timeline
   const selectedMember = await db.user.findUnique({
     where: { id: selectedMemberId },
     select: {
@@ -76,7 +69,7 @@ export default async function DashboardPage({
     },
   });
 
-  if (!selectedMember) redirect(`/dashboard?memberId=${session.user.id}`);
+  if (!selectedMember) redirect(`/timeline?memberId=${session.user.id}`);
 
   // ── Resolve editing entry ─────────────────────────────────────────────────
   let editingEntry: EditingEntry | null = null;
@@ -101,13 +94,6 @@ export default async function DashboardPage({
     }
   }
 
-  // ── Most recent medical history ───────────────────────────────────────────
-  const latestHistory = await db.medicalHistory.findFirst({
-    where: { userId: selectedMemberId },
-    orderBy: { createdAt: "desc" },
-    select: { summary: true, createdAt: true },
-  });
-
   // ── Details for the editing event ─────────────────────────────────────────
   let editingDetails: EventDetailRow[] = [];
   if (editingEntry) {
@@ -127,8 +113,6 @@ export default async function DashboardPage({
       createdAt: d.createdAt.toISOString(),
     }));
   }
-
-  // ── Serialize for client ──────────────────────────────────────────────────
 
   const timeline: MemberTimelineData = {
     id: selectedMember.id,
@@ -155,59 +139,7 @@ export default async function DashboardPage({
   };
 
   const username = session.user?.name ?? session.user?.email ?? "User";
-  const cancelHref = `/dashboard?memberId=${selectedMemberId}`;
-
-  // ── Health sidebar content (column 3) ────────────────────────────────────
-  const healthContent = (
-    <>
-      {/* Toast messages */}
-      {success === "added" && (
-        <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          Event added.
-        </p>
-      )}
-      {success === "updated" && (
-        <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          Event updated.
-        </p>
-      )}
-      {success === "detail" && (
-        <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          Detail added and processed.
-        </p>
-      )}
-
-      {/* Latest medical summary */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Latest Medical Summary
-          </h3>
-          {latestHistory && (
-            <span className="text-xs text-gray-400">
-              {new Date(latestHistory.createdAt).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
-          )}
-        </div>
-        {latestHistory ? (
-          <p className="text-xs text-gray-600 leading-relaxed">
-            {latestHistory.summary}
-          </p>
-        ) : (
-          <p className="text-xs text-gray-400 italic">
-            No medical history recorded yet.
-          </p>
-        )}
-      </div>
-
-      {/* Timeline */}
-      <MemberTimeline member={timeline} editingEntryId={edit} />
-    </>
-  );
+  const cancelHref = `/timeline?memberId=${selectedMemberId}`;
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -231,16 +163,18 @@ export default async function DashboardPage({
           />
         }
       />
+      <main className="flex-1 overflow-y-auto bg-gray-50 py-6">
+        <div className="max-w-3xl mx-auto px-6">
+          <MemberTimeline member={timeline} mode="page" />
+        </div>
+      </main>
 
-      <DashboardShell healthContent={healthContent} />
-
-      {/* Edit event modal — fixed overlay, position unaffected by layout */}
       <EditEventModal
         editing={editingEntry}
         editingDetails={editingDetails}
         selectedMemberId={selectedMemberId}
         cancelHref={cancelHref}
-        returnPath="/dashboard"
+        returnPath="/timeline"
         addAction={async () => { "use server"; }}
         updateAction={updateEvent}
         addTextDetailAction={addTextDetail}

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Blue circle background matching #416BF2 from source image -->
+  <circle cx="50" cy="50" r="50" fill="#416BF2"/>
+
+  <!-- White doctor silhouette -->
+
+  <!-- Head -->
+  <ellipse cx="50" cy="28" rx="11" ry="12" fill="white"/>
+
+  <!-- Neck -->
+  <rect x="45" y="38" width="10" height="6" fill="white"/>
+
+  <!-- Upper torso / white coat collar area (trapezoidal) -->
+  <path d="M 33 44 Q 39 40 45 43 L 45 68 L 33 68 Z" fill="white"/>
+  <path d="M 67 44 Q 61 40 55 43 L 55 68 L 67 68 Z" fill="white"/>
+
+  <!-- Body center panel -->
+  <rect x="38" y="43" width="24" height="25" rx="2" fill="white"/>
+
+  <!-- Left stethoscope ear tube -->
+  <path d="M 40 52 C 34 54 28 58 28 65 C 28 71 33 74 38 72"
+        fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Right stethoscope ear tube -->
+  <path d="M 60 52 C 66 54 72 58 72 65 C 72 71 67 74 62 72"
+        fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Stethoscope tube bridge across chest (earpieces connecting) -->
+  <path d="M 38 72 Q 50 80 62 72"
+        fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Stethoscope diaphragm (chest piece) -->
+  <circle cx="50" cy="79" r="4.5" fill="none" stroke="white" stroke-width="3"/>
+  <circle cx="50" cy="79" r="1.8" fill="white"/>
+</svg>

@@ -10,7 +10,9 @@ export default function Header({
 }) {
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-      <Link href="/dashboard">
+      <Link href="/dashboard" className="flex items-center gap-2.5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Family Health" className="w-8 h-8 shrink-0" />
         <h1 className="text-lg font-semibold text-gray-800 hover:text-blue-600 transition-colors">
           Family Health
         </h1>

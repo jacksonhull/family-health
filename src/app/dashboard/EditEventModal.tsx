@@ -10,6 +10,7 @@ export default function EditEventModal({
   editingDetails,
   selectedMemberId,
   cancelHref,
+  returnPath = "/dashboard",
   addAction,
   updateAction,
   addTextDetailAction,
@@ -21,6 +22,8 @@ export default function EditEventModal({
   editingDetails: EventDetailRow[];
   selectedMemberId: string;
   cancelHref: string;
+  /** Base path for server-action redirects, e.g. /dashboard or /timeline */
+  returnPath?: string;
   addAction: (formData: FormData) => Promise<void>;
   updateAction: (formData: FormData) => Promise<void>;
   addTextDetailAction: (formData: FormData) => Promise<void>;
@@ -71,6 +74,7 @@ export default function EditEventModal({
           updateAction={updateAction}
           editing={editing}
           cancelHref={cancelHref}
+          returnPath={returnPath}
           editingDetails={editingDetails}
           addTextDetailAction={addTextDetailAction}
           addFileDetailAction={addFileDetailAction}

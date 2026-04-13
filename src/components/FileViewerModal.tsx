@@ -81,6 +81,20 @@ export function FileTypeIcon({
   );
 }
 
+// ── Shared loading overlay ─────────────────────────────────────────────────
+
+function LoadingOverlay({ label }: { label: string }) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-400 bg-gray-50">
+      <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+      </svg>
+      <p className="text-sm">{label}</p>
+    </div>
+  );
+}
+
 // ── DOCX viewer (client-side conversion via mammoth) ───────────────────────
 
 function DocxViewer({ url }: { url: string }) {
@@ -112,12 +126,8 @@ function DocxViewer({ url }: { url: string }) {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center gap-3 p-12 text-gray-400">
-        <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-        </svg>
-        <p className="text-sm">Converting document…</p>
+      <div className="relative w-full h-64">
+        <LoadingOverlay label="Converting document…" />
       </div>
     );
   }
@@ -146,6 +156,10 @@ export default function FileViewerModal({
   onClose: () => void;
 }) {
   const { url, mimeType, fileName } = file;
+
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+  const [pdfLoaded,  setPdfLoaded]  = useState(false);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); },
@@ -201,31 +215,52 @@ export default function FileViewerModal({
         {/* Content */}
         <div className="flex-1 min-h-0 overflow-auto bg-gray-50 flex items-center justify-center">
           {image && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={url}
-              alt={fileName ?? "image"}
-              className="max-w-full max-h-full object-contain p-4"
-            />
+            <div className="relative w-full h-full flex items-center justify-center p-4 min-h-[200px]">
+              {!imageLoaded && <LoadingOverlay label="Loading image…" />}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={fileName ?? "image"}
+                onLoad={() => setImageLoaded(true)}
+                className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${
+                  imageLoaded ? "opacity-100" : "opacity-0"
+                }`}
+              />
+            </div>
           )}
+
           {video && (
-            // eslint-disable-next-line jsx-a11y/media-has-caption
-            <video
-              src={url}
-              controls
-              className="max-w-full max-h-full"
-              style={{ maxHeight: "calc(92vh - 56px)" }}
-            />
+            <div className="relative w-full flex items-center justify-center min-h-[200px]" style={{ maxHeight: "calc(92vh - 56px)" }}>
+              {!videoReady && <LoadingOverlay label="Loading video…" />}
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video
+                src={url}
+                controls
+                onCanPlay={() => setVideoReady(true)}
+                className={`max-w-full max-h-full transition-opacity duration-300 ${
+                  videoReady ? "opacity-100" : "opacity-0"
+                }`}
+                style={{ maxHeight: "calc(92vh - 56px)" }}
+              />
+            </div>
           )}
+
           {pdf && (
-            <iframe
-              src={url}
-              title={fileName ?? "PDF"}
-              className="w-full border-0"
-              style={{ height: "calc(92vh - 56px)" }}
-            />
+            <div className="relative w-full" style={{ height: "calc(92vh - 56px)" }}>
+              {!pdfLoaded && <LoadingOverlay label="Loading PDF…" />}
+              <iframe
+                src={url}
+                title={fileName ?? "PDF"}
+                onLoad={() => setPdfLoaded(true)}
+                className={`w-full h-full border-0 transition-opacity duration-300 ${
+                  pdfLoaded ? "opacity-100" : "opacity-0"
+                }`}
+              />
+            </div>
           )}
+
           {docx && <DocxViewer url={url} />}
+
           {!image && !video && !pdf && !docx && (
             <div className="text-center p-10">
               <FileTypeIcon mimeType={mimeType} fileName={fileName} className="w-10 h-10 text-gray-300 mx-auto mb-4" />
